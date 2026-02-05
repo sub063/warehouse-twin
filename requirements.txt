@@ -5,3 +5,5 @@ matplotlib
 plotly
 scipy
 seaborn
+simpy
+networkx
