@@ -1,5 +1,8 @@
-import { useSyncExternalStore } from "react";
-import { getState, selectAgent, setTheme, setUniverse, subscribe, universesOf } from "./store";
+import { useState, useSyncExternalStore } from "react";
+import { getState, sendCommand, setTheme, setUniverse, subscribe, universesOf } from "./store";
+import { DetailPanel } from "./ui/DetailPanel";
+import { Roster } from "./ui/Roster";
+import { SpawnModal } from "./ui/SpawnModal";
 import { handheldTheme } from "./world/handheld";
 import { isleTheme } from "./world/isle";
 import { WorldCanvas } from "./world/WorldCanvas";
@@ -10,6 +13,7 @@ export function App() {
   const state = useSyncExternalStore(subscribe, getState);
   const { world, connected, mode, selectedAgentId, activeUniverse, themeId } = state;
   const theme = THEMES[themeId];
+  const [showSpawn, setShowSpawn] = useState(false);
 
   const universes = universesOf(world);
   const visibleIds = world.order.filter(
@@ -17,6 +21,17 @@ export function App() {
   );
   const scopeCost = visibleIds.reduce((sum, id) => sum + (world.agents[id]?.usage.costUsd ?? 0), 0);
   const selected = selectedAgentId ? world.agents[selectedAgentId] : undefined;
+
+  const active = world.order
+    .map((id) => world.agents[id])
+    .filter((a) => a && a.state !== "done" && a.outcome === undefined);
+  const anyRunning = active.some((a) => a!.state !== "paused");
+
+  const stopAll = () => {
+    if (window.confirm(`Stop all ${active.length} running agent(s)? This can't be undone.`)) {
+      sendCommand({ kind: "stop_all" });
+    }
+  };
 
   return (
     <div className="app">
@@ -41,6 +56,19 @@ export function App() {
             {visibleIds.length} agent{visibleIds.length === 1 ? "" : "s"}
           </span>
           <span className="stat">${scopeCost.toFixed(4)}</span>
+          <button
+            className="btn"
+            disabled={active.length === 0}
+            onClick={() => sendCommand({ kind: anyRunning ? "pause_all" : "resume_all" })}
+          >
+            {anyRunning || active.length === 0 ? "Pause all" : "Resume all"}
+          </button>
+          <button className="btn danger" disabled={active.length === 0} onClick={stopAll}>
+            Stop all
+          </button>
+          <button className="btn primary" onClick={() => setShowSpawn(true)}>
+            + New Agent
+          </button>
           <div className="theme-toggle" aria-label="Theme">
             {(Object.keys(THEMES) as Array<keyof typeof THEMES>).map((id) => (
               <button key={id} className={themeId === id ? "seg on" : "seg"} onClick={() => setTheme(id)}>
@@ -54,27 +82,12 @@ export function App() {
       <div className="columns">
         <aside className="panel left">
           <h2>Roster</h2>
-          <ul className="mini-roster">
-            {visibleIds.map((id) => {
-              const a = world.agents[id];
-              if (!a) return null;
-              return (
-                <li
-                  key={id}
-                  className={id === selectedAgentId ? "selected" : ""}
-                  onClick={() => selectAgent(id)}
-                >
-                  <div className="row-top">
-                    <span className="name">{a.spec.name}</span>
-                    <span className={`state state-${a.state}`}>{a.state.replace("_", " ")}</span>
-                  </div>
-                  {activeUniverse === null && <span className="universe">{a.spec.universe}</span>}
-                </li>
-              );
-            })}
-            {visibleIds.length === 0 && <li className="placeholder">No agents in this universe yet.</li>}
-          </ul>
-          <p className="placeholder footnote">Full roster arrives in milestone 2.</p>
+          <Roster
+            world={world}
+            visibleIds={visibleIds}
+            selectedAgentId={selectedAgentId}
+            showUniverse={activeUniverse === null}
+          />
         </aside>
 
         <main className="center">
@@ -84,23 +97,16 @@ export function App() {
         <aside className="panel right">
           <h2>Agent detail</h2>
           {selected ? (
-            <div className="detail-stub">
-              <p className="name">{selected.spec.name}</p>
-              <p className="universe-tag">{selected.spec.universe}</p>
-              <p className="goal">{selected.spec.goal}</p>
-              <p>
-                state <b>{selected.state.replace("_", " ")}</b>
-              </p>
-              <p>
-                tokens {selected.usage.inputTokens + selected.usage.outputTokens} · $
-                {selected.usage.costUsd.toFixed(4)}
-              </p>
-            </div>
+            <DetailPanel agent={selected} />
           ) : (
-            <p className="placeholder">Tap an agent in the world or the roster. The full panel comes in milestone 2.</p>
+            <p className="placeholder">Tap an agent in the world or the roster to see its goal, timeline, and controls.</p>
           )}
         </aside>
       </div>
+
+      {showSpawn && (
+        <SpawnModal universes={universes} activeUniverse={activeUniverse} onClose={() => setShowSpawn(false)} />
+      )}
     </div>
   );
 }

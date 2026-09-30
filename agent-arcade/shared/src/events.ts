@@ -107,3 +107,15 @@ export function isKnownEventType(t: string): t is EventType {
 export type ServerMessage =
   | { kind: "snapshot"; events: ArcadeEvent[] }
   | { kind: "event"; event: ArcadeEvent };
+
+/** Commands sent over the WebSocket, client -> server. */
+export type ClientCommand =
+  | { kind: "spawn"; spec: AgentSpec }
+  | { kind: "pause"; agentId: string }
+  | { kind: "resume"; agentId: string }
+  | { kind: "stop"; agentId: string }
+  | { kind: "send_message"; agentId: string; text: string }
+  | { kind: "resolve_approval"; agentId: string; actionId: string; approved: boolean }
+  | { kind: "pause_all" }
+  | { kind: "resume_all" }
+  | { kind: "stop_all" };

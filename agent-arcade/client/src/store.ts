@@ -4,7 +4,7 @@
  * canvas render loop (which reads getState() directly every frame).
  */
 
-import type { WorldState } from "../../shared/src";
+import type { ClientCommand, WorldState } from "../../shared/src";
 import { initialState, reduce, reduceAll } from "../../shared/src";
 
 export interface UiState {
@@ -73,11 +73,23 @@ function logNewIgnored(prev: WorldState, next: WorldState): void {
   }
 }
 
+let socket: WebSocket | null = null;
+
+/** Send a command to the server; dropped (with a warning) if offline. */
+export function sendCommand(cmd: ClientCommand): void {
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(cmd));
+  } else {
+    console.warn("[agent-arcade] not connected; command dropped:", cmd.kind);
+  }
+}
+
 export function connect(url = `ws://${location.hostname}:8787`): void {
   let retryMs = 500;
 
   const open = () => {
     const ws = new WebSocket(url);
+    socket = ws;
     ws.onopen = () => {
       retryMs = 500;
       set({ ...state, connected: true });

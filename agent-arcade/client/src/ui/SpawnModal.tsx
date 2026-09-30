@@ -1,0 +1,158 @@
+import { useState } from "react";
+import type { AgentSpec } from "../../../shared/src";
+import { sendCommand, setUniverse } from "../store";
+
+const ALL_TOOLS = [
+  "web.search",
+  "web.read",
+  "file.read",
+  "file.write",
+  "file.edit",
+  "file.delete",
+  "shell.run",
+];
+
+const DEFAULT_TOOLS = ["web.search", "file.read", "file.edit", "shell.run"];
+
+export function SpawnModal({
+  universes,
+  activeUniverse,
+  onClose,
+}: {
+  universes: string[];
+  activeUniverse: string | null;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [goal, setGoal] = useState("");
+  const [universe, setUniverseField] = useState(activeUniverse ?? universes[0] ?? "Personal");
+  const [model, setModel] = useState<"mock-fast" | "mock-std">("mock-std");
+  const [tools, setTools] = useState<string[]>(DEFAULT_TOOLS);
+  const [budgetKind, setBudgetKind] = useState<"tokens" | "usd">("tokens");
+  const [budgetValue, setBudgetValue] = useState("25000");
+  const [approvalRequired, setApprovalRequired] = useState(true);
+
+  const toggleTool = (t: string) =>
+    setTools((cur) => (cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t]));
+
+  const deploy = () => {
+    const value = Number(budgetValue);
+    const spec: AgentSpec = {
+      name: name.trim() || "Agent",
+      goal: goal.trim() || "do something useful",
+      model,
+      allowedTools: tools,
+      budget:
+        Number.isFinite(value) && value > 0
+          ? budgetKind === "tokens"
+            ? { maxTokens: value }
+            : { maxUsd: value }
+          : {},
+      approvalRequired,
+      universe: universe.trim() || "Personal",
+    };
+    sendCommand({ kind: "spawn", spec });
+    // If a different universe is filtered in, follow the new agent.
+    if (activeUniverse !== null && activeUniverse !== spec.universe) setUniverse(spec.universe);
+    onClose();
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>New agent</h2>
+
+        <label className="field">
+          <span>Name</span>
+          <input value={name} autoFocus placeholder="e.g. Sweep" onChange={(e) => setName(e.target.value)} />
+        </label>
+
+        <label className="field">
+          <span>Goal</span>
+          <textarea
+            value={goal}
+            rows={2}
+            placeholder="What should this agent do?"
+            onChange={(e) => setGoal(e.target.value)}
+          />
+        </label>
+
+        <div className="field-row">
+          <label className="field">
+            <span>Universe</span>
+            <input value={universe} list="universe-options" onChange={(e) => setUniverseField(e.target.value)} />
+            <datalist id="universe-options">
+              {universes.map((u) => (
+                <option key={u} value={u} />
+              ))}
+            </datalist>
+          </label>
+          <label className="field">
+            <span>Model</span>
+            <div className="segmented">
+              {(["mock-std", "mock-fast"] as const).map((m) => (
+                <button key={m} type="button" className={model === m ? "seg on" : "seg"} onClick={() => setModel(m)}>
+                  {m}
+                </button>
+              ))}
+            </div>
+          </label>
+        </div>
+
+        <div className="field">
+          <span>Allowed tools</span>
+          <div className="tool-grid">
+            {ALL_TOOLS.map((t) => (
+              <label key={t} className="check">
+                <input type="checkbox" checked={tools.includes(t)} onChange={() => toggleTool(t)} />
+                <code>{t}</code>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="field-row">
+          <label className="field">
+            <span>Max budget</span>
+            <div className="budget-row">
+              <input
+                value={budgetValue}
+                inputMode="numeric"
+                onChange={(e) => setBudgetValue(e.target.value.replace(/[^\d.]/g, ""))}
+              />
+              <div className="segmented">
+                {(["tokens", "usd"] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className={budgetKind === k ? "seg on" : "seg"}
+                    onClick={() => setBudgetKind(k)}
+                  >
+                    {k === "usd" ? "$" : "tokens"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </label>
+          <label className="check approval-default">
+            <input
+              type="checkbox"
+              checked={approvalRequired}
+              onChange={(e) => setApprovalRequired(e.target.checked)}
+            />
+            <span>Require approval for shell commands &amp; deletions</span>
+          </label>
+        </div>
+
+        <div className="modal-actions">
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" onClick={deploy}>
+            Deploy agent
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

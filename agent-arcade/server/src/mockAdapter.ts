@@ -86,19 +86,39 @@ export class MockAdapter implements AgentAdapter {
     return id;
   }
 
-  /** AgentAdapter.start: spawn from a spec with a generic script. */
+  /**
+   * AgentAdapter.start: spawn from a spec with a generic looping script
+   * built from the tools the spec allows.
+   */
   start(spec: AgentSpec): string {
-    const generic: MockScript = {
-      spec,
-      steps: [
-        { kind: "say", text: "okay, getting started" },
-        { kind: "think", ms: [3000, 6000], say: "planning the work" },
-        { kind: "tool", tool: "file.read", category: "files", args: "workspace files", ms: [5000, 9000], say: "looking around", okResult: "context gathered" },
-        { kind: "tool", tool: "shell.run", category: "shell", args: "run checks", ms: [6000, 10000], say: "running checks", okResult: "checks green", failChance: 0.15, failResult: "check failed", approval: "Run shell command: project checks" },
-      ],
-      loopFrom: 1,
-    };
-    return this.startScript(generic);
+    const has = (t: string) => spec.allowedTools.includes(t);
+    const steps: Step[] = [
+      { kind: "say", text: "okay, getting started" },
+      { kind: "think", ms: [3000, 6000], say: "planning the work" },
+    ];
+    if (has("web.search") || has("web.read")) {
+      steps.push({ kind: "tool", tool: "web.search", category: "search", args: "background research", ms: [5000, 9000], say: "researching", okResult: "notes gathered" });
+    }
+    if (has("file.read")) {
+      steps.push({ kind: "tool", tool: "file.read", category: "files", args: "workspace files", ms: [5000, 8000], say: "looking around", okResult: "context gathered" });
+    }
+    if (has("file.edit") || has("file.write")) {
+      steps.push({ kind: "tool", tool: "file.edit", category: "files", args: "notes/progress.md (+12)", ms: [6000, 10000], say: "making edits", okResult: "changes saved" });
+    }
+    if (has("shell.run")) {
+      steps.push({ kind: "tool", tool: "shell.run", category: "shell", args: "run checks", ms: [6000, 10000], say: "running checks", okResult: "checks green", failChance: 0.15, failResult: "check failed", approval: "Run shell command: project checks" });
+    }
+    if (steps.length === 2) {
+      // No tools allowed: think it over, report, and finish.
+      steps.push({ kind: "say", text: "nothing I'm allowed to run" }, { kind: "finish", outcome: "completed" });
+      return this.startScript({ spec, steps });
+    }
+    return this.startScript({ spec, steps, loopFrom: 1 });
+  }
+
+  /** Ids of agents that are still running (for pause-all / kill-all). */
+  activeAgentIds(): string[] {
+    return [...this.runners.values()].filter((r) => !r.finished).map((r) => r.id);
   }
 
   pause(agentId: string): void {
