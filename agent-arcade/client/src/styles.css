@@ -887,3 +887,80 @@ body {
   padding: 1px 6px;
   border-radius: 999px;
 }
+
+/* ----------------------------------------------------- big world / camera */
+
+.world-wrap.smooth .layer-bg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.world-wrap.smooth .layer-fg {
+  position: relative;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+
+.world-wrap.smooth .layer-fg:active {
+  cursor: grabbing;
+}
+
+.world-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ctl {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(20, 40, 80, 0.2);
+}
+
+.ctl:hover {
+  background: #fff;
+}
+
+.world-hint {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(20, 30, 50, 0.35);
+  padding: 4px 9px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.minimap {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  border-radius: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 4px 14px rgba(20, 40, 80, 0.3);
+  cursor: pointer;
+  background: #2e7cd6;
+}
+
+.world-wrap.integer .minimap,
+.world-wrap.integer .layer-bg {
+  display: none;
+}

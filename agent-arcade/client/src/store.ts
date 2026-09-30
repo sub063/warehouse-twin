@@ -18,6 +18,8 @@ export interface UiState {
   /** Active universe (workspace) filter; null = all universes. */
   activeUniverse: string | null;
   themeId: "isle" | "handheld";
+  /** Ask the camera to pan to an agent or station (nonce marks each request). */
+  focus?: { kind: "agent" | "station"; id: string; nonce: number };
 }
 
 let state: UiState = {
@@ -45,6 +47,10 @@ function set(next: UiState): void {
 
 export function selectAgent(id: string | undefined): void {
   set({ ...state, selectedAgentId: id, selectedTerminalId: id ? undefined : state.selectedTerminalId });
+}
+
+export function focusOn(kind: "agent" | "station", id: string): void {
+  set({ ...state, focus: { kind, id, nonce: (state.focus?.nonce ?? 0) + 1 } });
 }
 
 export function selectTerminal(id: string | undefined): void {

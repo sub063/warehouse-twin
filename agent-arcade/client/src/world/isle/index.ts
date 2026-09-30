@@ -9,8 +9,8 @@
 import type { TerminalKind, TerminalSpec } from "../../../../shared/src";
 import type { AgentVisual, StationDef, Theme } from "../theme";
 
-const W = 480;
-const H = 360;
+const W = 1600;
+const H = 1200;
 
 // iOS-ish system colors for agent variants.
 const AGENT_COLORS = ["#3E8BFF", "#FF9F0A", "#FF5E7A", "#34C77B", "#AF6BF5", "#5AC8FA"];
@@ -63,9 +63,28 @@ function vGrad(ctx: CanvasRenderingContext2D, y0: number, y1: number, c0: string
   return g;
 }
 
+const ISLAND = { cx: 800, cy: 590, rx: 700, ry: 500 };
+
 function islandPath(ctx: CanvasRenderingContext2D, grow = 0): void {
   ctx.beginPath();
-  ctx.ellipse(240, 185, 168 + grow, 126 + grow, 0, 0, Math.PI * 2);
+  ctx.ellipse(ISLAND.cx, ISLAND.cy, ISLAND.rx + grow, ISLAND.ry + grow, 0, 0, Math.PI * 2);
+}
+
+function insideIsland(x: number, y: number, margin = 0): boolean {
+  const nx = (x - ISLAND.cx) / (ISLAND.rx - margin);
+  const ny = (y - ISLAND.cy) / (ISLAND.ry - margin);
+  return nx * nx + ny * ny < 1;
+}
+
+/** Small deterministic PRNG so scenery is stable across renders. */
+function rng(seed: number): () => number {
+  let t = seed >>> 0;
+  return () => {
+    t = (t + 0x6d2b79f5) >>> 0;
+    let r = Math.imul(t ^ (t >>> 15), 1 | t);
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 /** Lighten/darken a hex color by pct (-100..100). */
@@ -77,29 +96,31 @@ function shade(hex: string, pct: number): string {
 
 // ------------------------------------------------------------- layout
 
-const PLAZA = { x: 240, y: 192 };
-const RING = { cx: 240, cy: 200, rx: 152, ry: 88 };
+const PLAZA = { x: 800, y: 600 };
+const RING = { cx: 800, cy: 610, rx: 470, ry: 300 };
 
 /** Buildings shrink a little on crowded rings so they don't overlap. */
 function crowdScale(ringCount: number): number {
-  return Math.min(1, 6.5 / Math.max(1, ringCount));
+  return Math.min(1, 14 / Math.max(1, ringCount));
 }
+
+const PIER = { x: 800, top: 1084, w: 84, h: 62 };
 
 const DOCK: StationDef = {
   id: "dock",
   name: "Dock",
   kind: "dock",
-  x: 240,
-  y: 352,
+  x: PIER.x,
+  y: PIER.top + PIER.h,
   slots: [
-    { x: 222, y: 322 },
-    { x: 246, y: 322 },
-    { x: 258, y: 340 },
-    { x: 234, y: 344 },
-    { x: 212, y: 338 },
+    { x: PIER.x - 22, y: PIER.top + 18 },
+    { x: PIER.x + 6, y: PIER.top + 18 },
+    { x: PIER.x + 22, y: PIER.top + 38 },
+    { x: PIER.x - 6, y: PIER.top + 42 },
+    { x: PIER.x - 30, y: PIER.top + 38 },
   ],
-  labelAnchor: { x: 240, y: 354 },
-  hit: { x: 206, y: 306, w: 68, h: 46 },
+  labelAnchor: { x: PIER.x, y: PIER.top + PIER.h + 4 },
+  hit: { x: PIER.x - PIER.w / 2, y: PIER.top, w: PIER.w, h: PIER.h },
 };
 
 function ringStation(id: string, name: string, kind: StationDef["kind"], i: number, n: number, terminal?: TerminalSpec): StationDef {
@@ -114,7 +135,7 @@ function ringStation(id: string, name: string, kind: StationDef["kind"], i: numb
   const s = crowdScale(n);
   const slotY = Math.round(y + 14 * s + 2);
   // Stagger every other label on crowded rings so neighbors don't collide.
-  const stagger = n > 6 && i % 2 === 1 ? 9 : 0;
+  const stagger = n > 12 && i % 2 === 1 ? 9 : 0;
   return {
     id,
     name,
@@ -462,20 +483,21 @@ function drawBuilding(ctx: CanvasRenderingContext2D, st: StationDef): void {
 }
 
 function drawDockStatic(ctx: CanvasRenderingContext2D): void {
-  const px = 240;
-  softShadow(ctx, px, 352, 40, 7, 0.12);
-  ctx.fillStyle = vGrad(ctx, 306, 354, "#C89B66", "#A87C4C");
-  rr(ctx, px - 34, 306, 68, 46, 6);
+  const px = PIER.x;
+  const top = PIER.top;
+  softShadow(ctx, px, top + PIER.h, PIER.w / 2 + 6, 8, 0.12);
+  ctx.fillStyle = vGrad(ctx, top, top + PIER.h, "#C89B66", "#A87C4C");
+  rr(ctx, px - PIER.w / 2, top, PIER.w, PIER.h, 6);
   ctx.fill();
   ctx.strokeStyle = "rgba(90, 60, 30, 0.35)";
   ctx.lineWidth = 1.2;
-  for (let i = 1; i < 5; i++) {
+  for (let i = 1; i < 6; i++) {
     ctx.beginPath();
-    ctx.moveTo(px - 32, 306 + i * 9);
-    ctx.lineTo(px + 32, 306 + i * 9);
+    ctx.moveTo(px - PIER.w / 2 + 2, top + i * 10);
+    ctx.lineTo(px + PIER.w / 2 - 2, top + i * 10);
     ctx.stroke();
   }
-  for (const [dx, dy] of [[-30, 310], [30, 310], [-30, 344], [30, 344]] as const) {
+  for (const [dx, dy] of [[-38, top + 4], [38, top + 4], [-38, top + PIER.h - 6], [38, top + PIER.h - 6]] as const) {
     ctx.fillStyle = "#7C5A38";
     ctx.beginPath();
     ctx.arc(px + dx, dy, 3.4, 0, Math.PI * 2);
@@ -488,10 +510,10 @@ function drawDockStatic(ctx: CanvasRenderingContext2D): void {
 }
 
 function drawBoat(ctx: CanvasRenderingContext2D, t: number): void {
-  const px = 240;
+  const px = PIER.x;
   const bob = Math.sin(t / 900) * 1.6;
   ctx.save();
-  ctx.translate(px + 58, 330 + bob);
+  ctx.translate(px + 70, PIER.top + 30 + bob);
   softShadow(ctx, 0, 8, 16, 4, 0.12);
   ctx.fillStyle = "#E2574C";
   ctx.beginPath();
@@ -507,8 +529,8 @@ function drawBoat(ctx: CanvasRenderingContext2D, t: number): void {
   ctx.strokeStyle = "rgba(120, 90, 55, 0.7)";
   ctx.lineWidth = 1.3;
   ctx.beginPath();
-  ctx.moveTo(px + 32, 336);
-  ctx.quadraticCurveTo(px + 46, 340 + bob / 2, px + 48, 332 + bob);
+  ctx.moveTo(px + PIER.w / 2 - 2, PIER.top + 36);
+  ctx.quadraticCurveTo(px + 58, PIER.top + 40 + bob / 2, px + 60, PIER.top + 32 + bob);
   ctx.stroke();
 }
 
@@ -530,11 +552,70 @@ function drawTree(ctx: CanvasRenderingContext2D, x: number, y: number, s = 1): v
   ctx.fill();
 }
 
+function drawBush(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  softShadow(ctx, x, y + 1, 7, 2.5);
+  ctx.fillStyle = "#58B348";
+  ctx.beginPath();
+  ctx.arc(x - 4, y - 3, 4.5, 0, Math.PI * 2);
+  ctx.arc(x + 3, y - 4, 5, 0, Math.PI * 2);
+  ctx.arc(x, y - 2, 4.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 function drawPathTo(ctx: CanvasRenderingContext2D, x: number, y: number): void {
   ctx.beginPath();
   ctx.moveTo(PLAZA.x, PLAZA.y);
-  ctx.quadraticCurveTo((PLAZA.x + x) / 2, (PLAZA.y + y) / 2 + 10, x, y);
+  ctx.quadraticCurveTo((PLAZA.x + x) / 2, (PLAZA.y + y) / 2 + 24, x, y);
   ctx.stroke();
+}
+
+function drawRock(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
+  softShadow(ctx, x, y + 2, 9 * s, 3 * s, 0.14);
+  ctx.fillStyle = "#9AA5B1";
+  ctx.beginPath();
+  ctx.moveTo(x - 9 * s, y);
+  ctx.quadraticCurveTo(x - 8 * s, y - 9 * s, x - 1 * s, y - 9 * s);
+  ctx.quadraticCurveTo(x + 9 * s, y - 8 * s, x + 9 * s, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.3)";
+  ctx.beginPath();
+  ctx.ellipse(x - 3 * s, y - 6 * s, 3 * s, 1.5 * s, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawFlowers(ctx: CanvasRenderingContext2D, x: number, y: number, r: () => number): void {
+  const colors = ["#FF6B8A", "#FFD166", "#FFFFFF", "#B98CFF"];
+  for (let i = 0; i < 7; i++) {
+    ctx.fillStyle = colors[Math.floor(r() * colors.length)]!;
+    ctx.beginPath();
+    ctx.arc(x + (r() - 0.5) * 26, y + (r() - 0.5) * 16, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawPond(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number): void {
+  ctx.fillStyle = COLORS.sand;
+  ctx.beginPath();
+  ctx.ellipse(x, y, rx + 8, ry + 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = COLORS.waterShallow;
+  ctx.beginPath();
+  ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  ctx.beginPath();
+  ctx.ellipse(x - rx * 0.3, y - ry * 0.35, rx * 0.35, ry * 0.2, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** Distance from a point to the plaza->station path (approximated as a segment). */
+function distToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy || 1;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
 // ---------------------------------------------------- static scene
@@ -572,23 +653,73 @@ function drawStaticScene(ctx: CanvasRenderingContext2D, theme: Theme, stations: 
   islandPath(ctx, -8);
   ctx.clip();
   ctx.fillStyle = "rgba(255,255,255,0.12)";
-  for (let i = 0; i < 40; i++) {
-    ctx.fillRect(90 + ((i * 83) % 300), 75 + ((i * 53) % 220), 3, 1.4);
+  for (let i = 0; i < 420; i++) {
+    ctx.fillRect(ISLAND.cx - ISLAND.rx + ((i * 83) % (ISLAND.rx * 2)), ISLAND.cy - ISLAND.ry + ((i * 53) % (ISLAND.ry * 2)), 3, 1.4);
   }
   ctx.restore();
 
   const ring = stations.filter((s) => s.kind !== "dock");
 
-  // Paths from the plaza to each ring station and to the dock.
+  // Ponds and the ring road that links every terminal.
+  drawPond(ctx, 470, 930, 70, 42);
+  drawPond(ctx, 1180, 300, 62, 36);
   ctx.save();
   ctx.lineCap = "round";
+  for (const [color, width] of [[COLORS.pathEdge, 15], [COLORS.path, 11]] as const) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.ellipse(RING.cx, RING.cy + 18, RING.rx, RING.ry, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // Paths from the plaza to each ring station and to the dock.
   for (const [color, width] of [[COLORS.pathEdge, 13], [COLORS.path, 9]] as const) {
     ctx.strokeStyle = color;
     ctx.lineWidth = width;
     for (const s of ring) drawPathTo(ctx, s.slots[1]!.x, s.slots[1]!.y - 2);
-    drawPathTo(ctx, 240, 300);
+    drawPathTo(ctx, PIER.x, PIER.top - 6);
   }
   ctx.restore();
+
+  // Scenery: seeded so it never moves, kept off buildings, paths and water.
+  const r = rng(1337);
+  const clear = (x: number, y: number, pad: number) => {
+    if (!insideIsland(x, y, 40)) return false;
+    if (Math.hypot(x - PLAZA.x, y - PLAZA.y) < 60 + pad) return false;
+    if (Math.hypot(x - 470, y - 930) < 95 + pad || Math.hypot(x - 1180, y - 300) < 85 + pad) return false;
+    if (Math.abs(x - PIER.x) < 60 && y > PIER.top - 90) return false;
+    for (const s of ring) {
+      if (Math.hypot(x - s.x, y - s.y + 20) < 70 + pad) return false;
+      if (distToSegment(x, y, PLAZA.x, PLAZA.y, s.slots[1]!.x, s.slots[1]!.y) < 22 + pad) return false;
+      // Ring road.
+      const nx = (x - RING.cx) / RING.rx;
+      const ny = (y - RING.cy - 18) / RING.ry;
+      const d = Math.abs(Math.sqrt(nx * nx + ny * ny) - 1);
+      if (d < 0.05 + pad / 300) return false;
+    }
+    if (distToSegment(x, y, PLAZA.x, PLAZA.y, PIER.x, PIER.top) < 22 + pad) return false;
+    return true;
+  };
+  const scenery: Array<{ x: number; y: number; kind: "tree" | "bush" | "rock" | "flowers"; s: number }> = [];
+  let tries = 0;
+  while (scenery.length < 150 && tries < 4000) {
+    tries += 1;
+    const x = ISLAND.cx + (r() * 2 - 1) * ISLAND.rx;
+    const y = ISLAND.cy + (r() * 2 - 1) * ISLAND.ry;
+    const roll = r();
+    const kind = roll < 0.5 ? "tree" : roll < 0.75 ? "bush" : roll < 0.88 ? "rock" : "flowers";
+    const pad = kind === "tree" ? 10 : 0;
+    if (!clear(x, y, pad)) continue;
+    if (scenery.some((o) => Math.hypot(o.x - x, o.y - y) < (kind === "tree" ? 34 : 22))) continue;
+    scenery.push({ x, y, kind, s: 0.8 + r() * 0.5 });
+  }
+  scenery.sort((a, b) => a.y - b.y);
+  for (const o of scenery) {
+    if (o.kind === "tree") drawTree(ctx, o.x, o.y, o.s);
+    else if (o.kind === "bush") drawBush(ctx, o.x, o.y);
+    else if (o.kind === "rock") drawRock(ctx, o.x, o.y, o.s);
+    else drawFlowers(ctx, o.x, o.y, r);
+  }
 
   // Central plaza.
   softShadow(ctx, PLAZA.x, PLAZA.y + 4, 26, 9, 0.1);
@@ -601,17 +732,6 @@ function drawStaticScene(ctx: CanvasRenderingContext2D, theme: Theme, stations: 
   ctx.beginPath();
   ctx.ellipse(PLAZA.x, PLAZA.y, 19, 11.5, 0, 0, Math.PI * 2);
   ctx.stroke();
-
-  // Small trees between the paths (inner ring), when there's room.
-  if (ring.length <= 8) {
-    const n = ring.length;
-    for (let i = 0; i < n; i++) {
-      const deg = 130 + (280 * (i + 1)) / n;
-      if (i === n - 1) continue; // gap toward the dock
-      const rad = (deg * Math.PI) / 180;
-      drawTree(ctx, RING.cx + RING.rx * 0.6 * Math.cos(rad), RING.cy + RING.ry * 0.6 * Math.sin(rad) + 6, 0.75);
-    }
-  }
 
   // Buildings back-to-front, then the dock.
   const cs = crowdScale(ring.length);
@@ -630,7 +750,10 @@ export const isleTheme: Theme = {
   scaling: "smooth",
   width: W,
   height: H,
-  walkSpeed: 85,
+  home: { x: PLAZA.x, y: PLAZA.y + 20 },
+  homeZoom: 1.2,
+  backdrop: COLORS.waterDeep,
+  walkSpeed: 120,
   bubbleClearance: 34,
 
   layoutStations,
@@ -643,12 +766,10 @@ export const isleTheme: Theme = {
     // Drifting water highlights (skipped where the island sits).
     ctx.save();
     ctx.fillStyle = "rgba(255,255,255,0.10)";
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 70; i++) {
       const px = ((i * 137 + t * 0.012 + i * i * 31) % (W + 160)) - 80;
       const py = ((i * 97) % (H + 120)) - 60 + Math.sin(t / 1400 + i) * 4;
-      const nx = (px - 240) / 186;
-      const ny = (py - 185) / 144;
-      if (nx * nx + ny * ny < 1) continue;
+      if (insideIsland(px, py, -20)) continue;
       ctx.beginPath();
       ctx.ellipse(px, py, 16 + (i % 3) * 7, 2.2, 0, 0, Math.PI * 2);
       ctx.fill();

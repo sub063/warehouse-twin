@@ -5,7 +5,8 @@ import { spawn } from "node:child_process";
 const procs = [];
 
 function run(name, args) {
-  const p = spawn("npm", args, { stdio: "inherit", env: process.env });
+  // On Windows npm is npm.cmd, which Node only runs through a shell.
+  const p = spawn("npm", args, { stdio: "inherit", env: process.env, shell: process.platform === "win32" });
   p.on("exit", (code) => {
     // If one side dies, take the other down so the failure is obvious.
     for (const q of procs) if (q !== p && q.exitCode === null) q.kill();

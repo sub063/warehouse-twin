@@ -1,6 +1,6 @@
 import type { WorldState } from "../../../shared/src";
 import { elapsedMs } from "../../../shared/src";
-import { selectAgent } from "../store";
+import { focusOn, selectAgent } from "../store";
 import { fmtElapsed, fmtTokens, useNow } from "./format";
 
 export function Roster({
@@ -32,7 +32,10 @@ export function Roster({
           <li
             key={id}
             className={id === selectedAgentId ? "selected" : ""}
-            onClick={() => selectAgent(id)}
+            onClick={() => {
+              selectAgent(id);
+              focusOn("agent", id);
+            }}
           >
             <div className="row-top">
               <span className={`state-dot state-${a.state}`} />

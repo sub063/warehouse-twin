@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore } from "react";
 import { terminalsIn } from "../../shared/src";
-import { getState, selectTerminal, sendCommand, setTheme, setUniverse, subscribe, universesOf } from "./store";
+import { focusOn, getState, selectTerminal, sendCommand, setTheme, setUniverse, subscribe, universesOf } from "./store";
 import { DetailPanel } from "./ui/DetailPanel";
 import { Roster } from "./ui/Roster";
 import { SpawnModal } from "./ui/SpawnModal";
@@ -108,7 +108,10 @@ export function App() {
               <li
                 key={t.id}
                 className={t.id === selectedTerminalId ? "selected" : ""}
-                onClick={() => selectTerminal(t.id)}
+                onClick={() => {
+                  selectTerminal(t.id);
+                  focusOn("station", t.id);
+                }}
               >
                 <span className={`kind-swatch kind-${t.kind}`} title={KIND_LABELS[t.kind]} />
                 <span className="name">{t.name}</span>

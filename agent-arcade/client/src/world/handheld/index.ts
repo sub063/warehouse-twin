@@ -455,6 +455,9 @@ export const handheldTheme: Theme = {
   scaling: "integer",
   width: COLS * TILE,
   height: ROWS * TILE,
+  home: { x: (COLS * TILE) / 2, y: (ROWS * TILE) / 2 },
+  homeZoom: 1,
+  backdrop: "#12161d",
   walkSpeed: 55,
   bubbleClearance: 25,
 

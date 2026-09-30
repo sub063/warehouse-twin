@@ -56,9 +56,14 @@ export interface Theme {
    * fractional scale with antialiasing (smooth mobile-game look).
    */
   scaling: "integer" | "smooth";
-  /** Logical canvas size the theme draws in. */
+  /** Logical world size the theme draws in. */
   width: number;
   height: number;
+  /** Where the camera starts (world px) and at what zoom (smooth themes). */
+  home: { x: number; y: number };
+  homeZoom: number;
+  /** CSS color shown beyond the world's edge when panned out (smooth themes). */
+  backdrop: string;
   /** Agent walk speed in logical px/s (worlds differ in size). */
   walkSpeed: number;
   /**
