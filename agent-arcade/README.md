@@ -61,6 +61,13 @@ Safety rules baked in:
 
 ## Run
 
+**Easiest:** double-click `start.cmd` (Windows) or run `./start.sh`
+(macOS/Linux) inside `agent-arcade/`. It installs on first run, starts
+everything, and opens the app in its own window. Close the console
+window to stop.
+
+Manual:
+
 ```bash
 cd agent-arcade
 npm install
