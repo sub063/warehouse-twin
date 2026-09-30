@@ -10,8 +10,11 @@ import { initialState, reduce, reduceAll } from "../../shared/src";
 export interface UiState {
   world: WorldState;
   connected: boolean;
-  /** "mock" until milestone 3 introduces live mode. */
-  mode: "mock";
+  /** Which adapter new agents use (server-authoritative). */
+  mode: "mock" | "live";
+  /** Whether the server has an API key and can run live agents. */
+  liveAvailable: boolean;
+  liveModels: string[];
   selectedAgentId?: string;
   /** Selected station (terminal id, or "dock"/"mailbox"). */
   selectedTerminalId?: string;
@@ -26,6 +29,8 @@ let state: UiState = {
   world: initialState(),
   connected: false,
   mode: "mock",
+  liveAvailable: false,
+  liveModels: [],
   activeUniverse: null,
   themeId: "isle",
 };
@@ -115,8 +120,22 @@ export function connect(url = `ws://${location.hostname}:8787`): void {
     };
     ws.onmessage = (msg) => {
       try {
-        const data = JSON.parse(String(msg.data)) as { kind: string; events?: unknown[]; event?: unknown };
-        if (data.kind === "snapshot" && Array.isArray(data.events)) {
+        const data = JSON.parse(String(msg.data)) as {
+          kind: string;
+          events?: unknown[];
+          event?: unknown;
+          mode?: "mock" | "live";
+          liveAvailable?: boolean;
+          liveModels?: string[];
+        };
+        if (data.kind === "mode") {
+          set({
+            ...state,
+            mode: data.mode === "live" ? "live" : "mock",
+            liveAvailable: data.liveAvailable === true,
+            liveModels: Array.isArray(data.liveModels) ? data.liveModels : [],
+          });
+        } else if (data.kind === "snapshot" && Array.isArray(data.events)) {
           const world = reduceAll(data.events);
           logNewIgnored(state.world, world);
           set({ ...state, world });

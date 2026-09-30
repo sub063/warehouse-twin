@@ -19,4 +19,6 @@ export interface AgentAdapter {
   resolveApproval(agentId: string, actionId: string, approved: boolean): void;
   /** Subscribe to everything the adapter's agents do. */
   onEvent(listener: (e: DraftEvent) => void): void;
+  /** Ids of agents this adapter is still running (pause-all / stop-all). */
+  activeAgentIds(): string[];
 }

@@ -13,16 +13,42 @@ Agents live in **universes** (e.g. Personal, Business, per-project
 workspaces). The top-bar switcher filters the world, roster, and cost to
 one universe at a time; "All" shows everything.
 
-## Status: Milestone 1 (+ design iteration)
+## Status: Milestones 1–3 done
 
 - Event schema (v1) + pure reducer shared between live view and replay
 - MockAdapter: simulated agents, zero network/API calls (default mode)
-- Both themes: stations (Terminal, Library, Workshop, Mailbox, Dock),
-  walking agents, speech bubbles, and per-state visuals
-- Universe switcher; 3 mock agents across universes on launch
+- Big scrollable world (drag/scroll to pan, ⌘/Ctrl+scroll or buttons to
+  zoom, minimap), two themes, universes, **terminals** (per-universe
+  stations you define: what they're for, tools they provide, what they
+  require; agents route tool calls to them)
+- Roster, detail panel (timeline, files changed), spawn / pause / resume /
+  stop / message, approve / deny, pause-all / stop-all
+- **Live mode**: real agents on the Anthropic API (`ClaudeAdapter`) with
+  per-agent workspace sandboxing and approval gating — see below
 
-Milestones 2–4 (full roster/detail/controls, real-agent adapter, SQLite +
-replay) are not built yet.
+Milestone 4 (SQLite persistence + replay scrubber) is not built yet.
+
+## Live mode (real agents)
+
+1. Copy `.env.example` to `agent-arcade/.env` and set `ANTHROPIC_API_KEY`.
+2. Restart `npm run dev`. The top-bar **Mock | Live** toggle becomes
+   enabled; it stays on Mock until you switch it.
+3. In Live, "+ New Agent" deploys a real agent (Opus 5.5 by default).
+
+Safety rules baked in:
+
+- Each live agent works only inside `agent-arcade/workspaces/<agentId>`;
+  any path outside it (including via `..`, absolute paths or symlinks) is
+  rejected and reported back to the model.
+- Shell commands and deletions wait for your approval (the Mailbox) unless
+  you untick "require approval" when spawning. Denied actions are skipped.
+- The API key is read from the environment / `.env` only; it is never
+  logged, never sent to the browser, and stripped from the environment of
+  any shell command an agent runs.
+- Budgets stop the agent with a `budget_exceeded` event.
+- Custom terminals (e.g. image generation) are advertised to the model so
+  it can plan; calling one returns "not connected (requires: …)" until a
+  connector is wired up.
 
 ## Run
 

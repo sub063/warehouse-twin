@@ -13,17 +13,22 @@ export function SpawnModal({
   world,
   universes,
   activeUniverse,
+  mode,
+  liveModels,
   onClose,
 }: {
   world: WorldState;
   universes: string[];
   activeUniverse: string | null;
+  mode: "mock" | "live";
+  liveModels: string[];
   onClose: () => void;
 }) {
+  const models = mode === "live" && liveModels.length ? liveModels : ["mock-std", "mock-fast"];
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [universe, setUniverseField] = useState(activeUniverse ?? universes[0] ?? "Personal");
-  const [model, setModel] = useState<"mock-fast" | "mock-std">("mock-std");
+  const [model, setModel] = useState<string>(models[0]!);
   const [tools, setTools] = useState<string[]>(DEFAULT_TOOLS);
 
   // Tools come from the universe's terminals, grouped by terminal, so it's
@@ -94,12 +99,15 @@ export function SpawnModal({
           <label className="field">
             <span>Model</span>
             <div className="segmented">
-              {(["mock-std", "mock-fast"] as const).map((m) => (
+              {models.map((m) => (
                 <button key={m} type="button" className={model === m ? "seg on" : "seg"} onClick={() => setModel(m)}>
-                  {m}
+                  {m.replace(/^claude-/, "")}
                 </button>
               ))}
             </div>
+            {mode === "live" && (
+              <span className="field-note">Live: runs on the Anthropic API and spends real money. Shell and delete need your approval unless you turn that off below.</span>
+            )}
           </label>
         </div>
 

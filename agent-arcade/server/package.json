@@ -9,6 +9,7 @@
     "start": "node dist/server/src/index.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.130.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

@@ -153,10 +153,14 @@ export function isKnownEventType(t: string): t is EventType {
   return (EVENT_TYPES as readonly string[]).includes(t);
 }
 
+export type RunMode = "mock" | "live";
+
 /** Messages sent over the WebSocket, server -> client. */
 export type ServerMessage =
   | { kind: "snapshot"; events: ArcadeEvent[] }
-  | { kind: "event"; event: ArcadeEvent };
+  | { kind: "event"; event: ArcadeEvent }
+  /** Which adapter new agents use; live needs an API key on the server. */
+  | { kind: "mode"; mode: RunMode; liveAvailable: boolean; liveModels: string[] };
 
 /** Commands sent over the WebSocket, client -> server. */
 export type ClientCommand =
@@ -170,4 +174,5 @@ export type ClientCommand =
   | { kind: "resume_all" }
   | { kind: "stop_all" }
   | { kind: "add_terminal"; terminal: Omit<TerminalSpec, "id"> }
-  | { kind: "remove_terminal"; terminalId: string };
+  | { kind: "remove_terminal"; terminalId: string }
+  | { kind: "set_mode"; mode: RunMode };

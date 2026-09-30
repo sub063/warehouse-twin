@@ -12,9 +12,10 @@ import { WorldCanvas } from "./world/WorldCanvas";
 
 const THEMES = { isle: isleTheme, handheld: handheldTheme } as const;
 
+
 export function App() {
   const state = useSyncExternalStore(subscribe, getState);
-  const { world, connected, mode, selectedAgentId, selectedTerminalId, activeUniverse, themeId } = state;
+  const { world, connected, mode, liveAvailable, selectedAgentId, selectedTerminalId, activeUniverse, themeId } = state;
   const theme = THEMES[themeId];
   const [modal, setModal] = useState<"spawn" | "terminal" | null>(null);
 
@@ -49,7 +50,19 @@ export function App() {
       <header className="topbar">
         <div className="topbar-side left">
           <span className="brand">Agent Arcade</span>
-          <span className={`pill mode-${mode}`}>{mode === "mock" ? "Mock" : "Live"}</span>
+          <div className={`mode-toggle mode-${mode}`} aria-label="Mode" title={liveAvailable ? "Live agents run on the Anthropic API" : "Add ANTHROPIC_API_KEY to agent-arcade/.env and restart to enable Live"}>
+            <button className={mode === "mock" ? "seg on" : "seg"} onClick={() => sendCommand({ kind: "set_mode", mode: "mock" })}>
+              Mock
+            </button>
+            <button
+              className={mode === "live" ? "seg on live" : "seg"}
+              disabled={!liveAvailable}
+              onClick={() => sendCommand({ kind: "set_mode", mode: "live" })}
+            >
+              Live
+            </button>
+          </div>
+          {mode === "live" && <span className="pill mode-live">LIVE · real agents</span>}
           <span className={`dot ${connected ? "ok" : "off"}`} title={connected ? "connected" : "connecting…"} />
         </div>
         <nav className="universes" aria-label="Universe">
@@ -151,7 +164,14 @@ export function App() {
       </div>
 
       {modal === "spawn" && (
-        <SpawnModal world={world} universes={universes} activeUniverse={activeUniverse} onClose={() => setModal(null)} />
+        <SpawnModal
+          world={world}
+          universes={universes}
+          activeUniverse={activeUniverse}
+          mode={mode}
+          liveModels={state.liveModels}
+          onClose={() => setModal(null)}
+        />
       )}
       {modal === "terminal" && (
         <TerminalModal universes={universes} activeUniverse={activeUniverse} onClose={() => setModal(null)} />

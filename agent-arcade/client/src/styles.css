@@ -964,3 +964,41 @@ body {
 .world-wrap.integer .layer-bg {
   display: none;
 }
+
+/* ------------------------------------------------------------- mode */
+
+.mode-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(20, 40, 70, 0.07);
+  border-radius: 10px;
+}
+
+.mode-toggle .seg {
+  padding: 4px 11px;
+  font-size: 12px;
+}
+
+.mode-toggle .seg:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mode-toggle .seg.on.live {
+  background: var(--red);
+  color: #fff;
+}
+
+.pill.mode-live {
+  background: rgba(255, 69, 58, 0.14);
+  color: var(--red);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.field-note {
+  font-size: 11.5px;
+  color: var(--red);
+  line-height: 1.35;
+  margin-top: 4px;
+}
