@@ -364,6 +364,9 @@ const KIND_CODE: Record<string, string> = {
   marketing: "ADS",
   data: "DATA",
   chat: "CHAT",
+  legal: "LAW",
+  logistics: "SHIP",
+  hr: "HR",
   custom: "MISC",
 };
 

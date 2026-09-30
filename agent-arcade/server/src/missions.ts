@@ -44,7 +44,7 @@ export const mockPlanner: Planner = async (goal, terminals) => {
   const short = goal.length > 48 ? goal.slice(0, 45).trimEnd() + "…" : goal;
   const brief = goal.length > 160 ? goal.slice(0, 157).trimEnd() + "…" : goal;
   tasks.push({ title: `Research: ${short}`, detail: `Find what matters for "${brief}" and write notes for the team.`, kind: "research", role: "Researcher" });
-  if (/build|code|app|fix|test|refactor|website|site|script|bug|feature/.test(g)) {
+  if (/\b(build|code|coding|app|fix|test|tests|refactor|website|site|scripts?|bug|feature|software|api)\b/.test(g)) {
     tasks.push({ title: "Implement the changes", detail: `Do the hands-on work for "${brief}" in the workspace.`, kind: "files", role: "Builder" });
     tasks.push({ title: "Test and verify", detail: "Run the checks and fix what fails.", kind: "shell", role: "Tester" });
   }
@@ -63,11 +63,25 @@ export const mockPlanner: Planner = async (goal, terminals) => {
   if (/sell|sales|customer|crm|launch/.test(g) && kinds.has("chat")) {
     tasks.push({ title: "Follow up on first sales", detail: "Track leads and log the first orders.", kind: "chat", role: "Sales" });
   }
+  if (/budget|cost|price|pricing|invoice|finance|accounting|tax|cash|margin|profit/.test(g) && kinds.has("data")) {
+    tasks.push({ title: "Build the budget and pricing", detail: "Cost it out, set margins and track the numbers.", kind: "data", role: "Accountant" });
+  }
+  if (/contract|terms|policy|compliance|legal|license|trademark|privacy|gdpr/.test(g) && kinds.has("legal")) {
+    tasks.push({ title: "Legal review", detail: "Check contracts, terms and compliance before anything goes out.", kind: "legal", role: "Counsel" });
+  }
+  if (/ship|deliver|inventory|supplier|warehouse|logistic|stock|fulfil|order/.test(g) && kinds.has("logistics")) {
+    tasks.push({ title: "Sort out supply and shipping", detail: "Line up suppliers, stock and delivery.", kind: "logistics", role: "Logistics lead" });
+  }
+  if (/hire|hiring|recruit|onboard|staff|job|candidate|interview/.test(g) && kinds.has("hr")) {
+    tasks.push({ title: "Hiring and onboarding", detail: "Write the role, screen candidates and plan onboarding.", kind: "hr", role: "People lead" });
+  }
   if (/write|summar|report|notes|doc|plan|brief|email|post/.test(g) || tasks.length === 1) {
     tasks.push({ title: "Write it up", detail: `Turn the findings into the deliverable for "${brief}".`, kind: "files", role: "Writer" });
   }
-  tasks.push({ title: "Review and wrap up", detail: "Check everything against the goal and prepare it for your review.", kind: "files", role: "Reviewer" });
-  return tasks.slice(0, 7);
+  // The reviewer always closes the plan, whatever got cut.
+  const plan = tasks.slice(0, 8);
+  plan.push({ title: "Review and wrap up", detail: "Check everything against the goal and prepare it for your review.", kind: "files", role: "Reviewer" });
+  return plan;
 };
 
 const KIND_TOOL: Record<TerminalKind, { tool: string; category: ToolCategory }> = {
@@ -80,10 +94,62 @@ const KIND_TOOL: Record<TerminalKind, { tool: string; category: ToolCategory }> 
   marketing: { tool: "ads.create_campaign", category: "unknown" },
   data: { tool: "data.query", category: "unknown" },
   chat: { tool: "crm.log_sale", category: "unknown" },
+  legal: { tool: "legal.review_contract", category: "unknown" },
+  logistics: { tool: "logistics.plan_shipment", category: "unknown" },
+  hr: { tool: "hr.post_job", category: "unknown" },
   custom: { tool: "custom.run", category: "unknown" },
 };
 
 /** A mock script that works one task at its terminal, talking to the team as it goes. */
+/** The markdown a mock team member leaves behind for its task. */
+function deliverableFor(spec: AgentSpec, task: TaskSpec, where: string): string {
+  const goal = spec.goal.match(/\(team goal: ([\s\S]*)\)$/)?.[1] ?? spec.goal;
+  const when = new Date().toISOString().slice(0, 16).replace("T", " ");
+  if (spec.role === "Reviewer") {
+    return [
+      `# Final: ${goal.length > 80 ? goal.slice(0, 77) + "…" : goal}`,
+      "",
+      `_Compiled by ${spec.name} (Reviewer) · ${when}_`,
+      "",
+      "## Goal",
+      goal,
+      "",
+      "## What the team delivered",
+      "- Research notes, the write-up and any visuals/listings are in each teammate's `team/` folder (see the Output tab).",
+      "- Everything below was checked against the goal.",
+      "",
+      "## Review",
+      "- Scope: covered as planned.",
+      "- Open points: none blocking; see individual task notes.",
+      "",
+      "## Next steps",
+      "1. Read the deliverables in Output.",
+      "2. Approve the tasks you are happy with, or send one back with Redo.",
+      "",
+    ].join("\n");
+  }
+  return [
+    `# ${task.title}`,
+    "",
+    `_${spec.name}${spec.role ? ` (${spec.role})` : ""} · worked at ${where} · ${when}_`,
+    "",
+    "## Task",
+    task.detail,
+    "",
+    "## Team goal",
+    goal,
+    "",
+    "## Result",
+    `- Completed "${task.title}" in two passes at ${where}.`,
+    "- Notes and findings recorded here for the next teammate.",
+    "- Hand-off posted in the team channel.",
+    "",
+    "## Notes for review",
+    "- (mock run) Replace this with the real output when running in Live mode.",
+    "",
+  ].join("\n");
+}
+
 export function scriptForTask(spec: AgentSpec, task: TaskSpec, kind: TerminalKind, terminals: TerminalSpec[]): MockScript {
   const term = terminals.find((t) => t.kind === kind);
   const tool = term?.tools[0] ?? KIND_TOOL[kind].tool;
@@ -99,7 +165,16 @@ export function scriptForTask(spec: AgentSpec, task: TaskSpec, kind: TerminalKin
       ? [{ kind: "ask", text: `Quick check on "${task.title}": should I optimise for speed or for quality?`, options: ["Speed", "Quality", "Balanced"] } satisfies Step]
       : []),
     { kind: "tool", tool, category, args: task.detail.slice(0, 40), ms: [8000, 13000], say: "finishing the work", okResult: "step 2 done", failChance: 0.06, failResult: "retrying" },
-    { kind: "tool", tool: "file.write", category: "files", args: `team/${task.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24)}.md (+30)`, ms: [5000, 8000], say: "writing my results", okResult: "results saved" },
+    {
+      kind: "tool",
+      tool: "file.write",
+      category: "files",
+      args: `${spec.role === "Reviewer" ? "FINAL" : "team/" + task.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24)}.md (+30)`,
+      ms: [5000, 8000],
+      say: "writing my results",
+      okResult: "results saved",
+      content: deliverableFor(spec, task, term?.name ?? kind),
+    },
     { kind: "team", text: `Done with "${task.title}". Results are in team/ — handing off.` },
     { kind: "say", text: "ready for review" },
     { kind: "finish", outcome: "completed" },

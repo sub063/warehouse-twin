@@ -1,7 +1,9 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { openQuestions, ReplayPlayer, terminalsIn, UNIVERSES } from "../../shared/src";
+import { openApprovals, openQuestions, ReplayPlayer, terminalsIn, UNIVERSES } from "../../shared/src";
 import { focusOn, getState, selectAgent, selectTerminal, sendCommand, setLeftTab, setTheme, setUniverse, subscribe } from "./store";
 import { DetailPanel } from "./ui/DetailPanel";
+import { FileViewer } from "./ui/FileViewer";
+import { OutputPanel } from "./ui/OutputPanel";
 import { MissionPanel } from "./ui/MissionPanel";
 import { ReplayBar } from "./ui/ReplayBar";
 import { Roster } from "./ui/Roster";
@@ -32,7 +34,10 @@ export function App() {
   const selectedTerminal = selectedTerminalId ? world.terminals[selectedTerminalId] : undefined;
   const universes = [...UNIVERSES];
   const questionsAll = openQuestions(world, null);
-  const questionsHere = questionsAll.filter((q) => q.agent.spec.universe === activeUniverse);
+  const approvalsAll = openApprovals(world, null);
+  // Everything waiting on the human, nearest universe first.
+  const waitingAll = [...questionsAll.map((q) => q.agent), ...approvalsAll.map((a) => a.agent)];
+  const waitingHere = waitingAll.filter((a) => a.spec.universe === activeUniverse);
 
   const active = visibleIds.map((id) => world.agents[id]).filter((a) => a && a.outcome === undefined);
   const anyRunning = active.some((a) => a!.state !== "paused");
@@ -70,17 +75,20 @@ export function App() {
           <span className={`dot ${connected ? "ok" : "off"}`} title={connected ? "connected" : "connecting…"} />
         </div>
         <div className="topbar-side right">
-          {questionsAll.length > 0 && (
+          {waitingAll.length > 0 && (
             <button
               className="pill question-pill"
-              title="Agents are waiting for your answer"
+              title="Agents are waiting on you: questions to answer or actions to approve"
               onClick={() => {
-                const first = questionsHere[0] ?? questionsAll[0]!;
-                if (first.agent.spec.universe !== activeUniverse) setUniverse(first.agent.spec.universe as (typeof UNIVERSES)[number]);
+                const first = waitingHere[0] ?? waitingAll[0]!;
+                if (first.spec.universe !== activeUniverse) setUniverse(first.spec.universe as (typeof UNIVERSES)[number]);
                 closeDetail();
               }}
             >
-              {questionsAll.length} question{questionsAll.length === 1 ? "" : "s"} for you
+              {questionsAll.length > 0 && `${questionsAll.length} question${questionsAll.length === 1 ? "" : "s"}`}
+              {questionsAll.length > 0 && approvalsAll.length > 0 && " · "}
+              {approvalsAll.length > 0 && `${approvalsAll.length} approval${approvalsAll.length === 1 ? "" : "s"}`}
+              {" waiting on you"}
             </button>
           )}
           <span className="stat">
@@ -93,7 +101,7 @@ export function App() {
             Stop all
           </button>
           <button className="btn" onClick={() => setModal("terminal")}>
-            + Terminal
+            + Department
           </button>
           <button className="btn" onClick={() => setModal("spawn")}>
             + Agent
@@ -115,7 +123,8 @@ export function App() {
               [
                 ["team", `Team (${active.length})`],
                 ["tasks", "Tasks"],
-                ["terminals", `Terminals (${terminals.length})`],
+                ["output", "Output"],
+                ["terminals", `Departments (${terminals.length})`],
               ] as const
             ).map(([tab, label]) => (
               <button key={tab} className={leftTab === tab ? "tab on" : "tab"} onClick={() => setLeftTab(tab)}>
@@ -125,6 +134,7 @@ export function App() {
           </div>
           {leftTab === "team" && <Roster world={world} visibleIds={visibleIds} selectedAgentId={selectedAgentId} />}
           {leftTab === "tasks" && <TaskBoard world={world} universe={activeUniverse} />}
+          {leftTab === "output" && <OutputPanel world={world} universe={activeUniverse} visibleIds={visibleIds} workspaceRoot={state.workspaceRoot} />}
           {leftTab === "terminals" && (
             <ul className="terminal-list rich">
               {terminals.map((t) => (
@@ -145,7 +155,7 @@ export function App() {
                   {t.tools.length > 0 && <div className="muted small">{t.tools.join(" · ")}</div>}
                 </li>
               ))}
-              {terminals.length === 0 && <li className="placeholder empty">No terminals yet — add one above.</li>}
+              {terminals.length === 0 && <li className="placeholder empty">No departments yet — add one above.</li>}
             </ul>
           )}
         </aside>
@@ -179,6 +189,7 @@ export function App() {
       {modal === "spawn" && (
         <SpawnModal world={world} universes={universes} activeUniverse={activeUniverse} mode={mode} liveModels={state.liveModels} onClose={() => setModal(null)} />
       )}
+      {state.viewer && <FileViewer viewer={state.viewer} world={world} />}
       {modal === "terminal" && <TerminalModal universes={universes} activeUniverse={activeUniverse} onClose={() => setModal(null)} />}
     </div>
   );

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { TaskSpec, TaskStatus, WorldState } from "../../../shared/src";
-import { activeMission, tasksIn } from "../../../shared/src";
+import { activeMission, latestMission, tasksIn } from "../../../shared/src";
 import { focusOn, selectAgent, sendCommand } from "../store";
 
 const COLUMNS: Array<{ status: TaskStatus; label: string }> = [
@@ -65,7 +65,8 @@ function TaskCard({ task, world }: { task: TaskSpec; world: WorldState }) {
 }
 
 export function TaskBoard({ world, universe }: { world: WorldState; universe: string }) {
-  const mission = activeMission(world, universe);
+  // Show the goal in progress, or the last finished one so its work stays visible.
+  const mission = activeMission(world, universe) ?? latestMission(world, universe);
   const all = tasksIn(world, universe);
   // The board shows the current goal's tasks plus one-off tasks; earlier goals fold away below.
   const tasks = all.filter((t) => !t.missionId || t.missionId === mission?.id);

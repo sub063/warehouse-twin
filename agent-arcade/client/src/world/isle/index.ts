@@ -195,6 +195,9 @@ const KIND_STYLE: Record<StationDef["kind"], KindStyle> = {
   marketing: { wall0: "#FFEAF0", wall1: "#F8D2DE", roof0: "#F0508A", roof1: "#CF3A70", roof: "round", w: 58, faceH: 32 },
   data: { wall0: "#DCE6F2", wall1: "#C3D2E4", roof0: "#5474A6", roof1: "#3F5A87", roof: "flat", w: 60, faceH: 34 },
   chat: { wall0: "#FFF4D6", wall1: "#F6E4B0", roof0: "#F5A623", roof1: "#D98A12", roof: "round", w: 56, faceH: 30 },
+  legal: { wall0: "#F4F1EA", wall1: "#E3DCCB", roof0: "#6B5B95", roof1: "#54467A", roof: "flat", w: 62, faceH: 36 },
+  logistics: { wall0: "#E4E7EC", wall1: "#C9CED8", roof0: "#E0862E", roof1: "#BD6C1E", roof: "flat", w: 68, faceH: 34 },
+  hr: { wall0: "#FDF0E6", wall1: "#F5DCC8", roof0: "#D9534F", roof1: "#B8413E", roof: "gable", w: 58, faceH: 32 },
   custom: { wall0: "#ECE8F8", wall1: "#D8D0F0", roof0: "#8A8FA8", roof1: "#6F7590", roof: "gable", w: 58, faceH: 32 },
   mailbox: { wall0: "#FDFDFB", wall1: "#E8EAEE", roof0: "#4E9BFF", roof1: "#3578E5", roof: "round", w: 50, faceH: 30 },
   dock: { wall0: "#C89B66", wall1: "#A87C4C", roof0: "", roof1: "", roof: "flat", w: 68, faceH: 46 },
@@ -420,6 +423,54 @@ const ICONS: Record<TerminalKind, (ctx: CanvasRenderingContext2D, x: number, y: 
     for (let i = 0; i < 3; i++) {
       ctx.beginPath();
       ctx.arc(x - 6 + i * 6, y - 1.5, 1.7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  },
+  legal(ctx, x, y) {
+    // Scales of justice.
+    sign(ctx, x, y, 30, 20, "#FFFFFF");
+    ctx.strokeStyle = "#6B5B95";
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 7);
+    ctx.lineTo(x, y + 7);
+    ctx.moveTo(x - 10, y - 4);
+    ctx.lineTo(x + 10, y - 4);
+    ctx.moveTo(x - 12, y + 5);
+    ctx.lineTo(x - 8, y + 5);
+    ctx.moveTo(x + 8, y + 5);
+    ctx.lineTo(x + 12, y + 5);
+    ctx.stroke();
+    ctx.fillStyle = "#6B5B95";
+    ctx.fillRect(x - 5, y + 6, 10, 2);
+  },
+  logistics(ctx, x, y) {
+    // Delivery box + truck-ish arrow.
+    sign(ctx, x, y, 30, 20, "#FFFFFF");
+    ctx.fillStyle = "#E0862E";
+    ctx.fillRect(x - 11, y - 6, 12, 12);
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(x - 6, y - 6, 2, 12);
+    ctx.fillStyle = "#E0862E";
+    ctx.beginPath();
+    ctx.moveTo(x + 3, y - 3);
+    ctx.lineTo(x + 9, y - 3);
+    ctx.lineTo(x + 12, y);
+    ctx.lineTo(x + 9, y + 3);
+    ctx.lineTo(x + 3, y + 3);
+    ctx.closePath();
+    ctx.fill();
+  },
+  hr(ctx, x, y) {
+    // Two people.
+    sign(ctx, x, y, 28, 20, "#FFFFFF");
+    ctx.fillStyle = "#D9534F";
+    for (const dx of [-5, 5]) {
+      ctx.beginPath();
+      ctx.arc(x + dx, y - 3, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x + dx, y + 6, 5, Math.PI, 0);
       ctx.fill();
     }
   },

@@ -4,7 +4,7 @@
  */
 
 import type { MissionSpec, TaskSpec, TerminalSpec } from "./events";
-import type { AgentView, PendingQuestion, TeamMessage, WorldState } from "./reducer";
+import type { AgentView, PendingApproval, PendingQuestion, TeamMessage, WorldState } from "./reducer";
 
 /** Terminals in a universe (or every universe when null), in creation order. */
 export function terminalsIn(world: WorldState, universe: string | null): TerminalSpec[] {
@@ -73,6 +73,14 @@ export function activeMission(world: WorldState, universe: string): MissionSpec 
     .find((m) => m && m.universe === universe && m.status !== "done");
 }
 
+/** The most recent mission in a universe, finished or not. */
+export function latestMission(world: WorldState, universe: string): MissionSpec | undefined {
+  return [...world.missionOrder]
+    .reverse()
+    .map((id) => world.missions[id])
+    .find((m) => m && m.universe === universe);
+}
+
 export function teamMessagesIn(world: WorldState, universe: string): TeamMessage[] {
   return world.teamMessages.filter((m) => m.universe === universe);
 }
@@ -87,4 +95,16 @@ export function openQuestions(world: WorldState, universe: string | null): Array
     for (const question of a.pendingQuestions) out.push({ agent: a, question });
   }
   return out.sort((x, y) => x.question.askedTs - y.question.askedTs);
+}
+
+/** Every action waiting on the human's approval in a universe (or all), oldest first. */
+export function openApprovals(world: WorldState, universe: string | null): Array<{ agent: AgentView; approval: PendingApproval }> {
+  const out: Array<{ agent: AgentView; approval: PendingApproval }> = [];
+  for (const id of world.order) {
+    const a = world.agents[id];
+    if (!a || a.outcome !== undefined) continue;
+    if (universe !== null && a.spec.universe !== universe) continue;
+    for (const approval of a.pendingApprovals) out.push({ agent: a, approval });
+  }
+  return out.sort((x, y) => x.approval.requestedTs - y.approval.requestedTs);
 }

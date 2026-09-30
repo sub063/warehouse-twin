@@ -42,7 +42,7 @@ export function TerminalDetail({
 
   const remove = () => {
     if (!terminal) return;
-    if (window.confirm(`Remove terminal "${terminal.name}"? Agents using it will head back to the dock.`)) {
+    if (window.confirm(`Remove the ${terminal.name} department? Agents working there will head back to the dock.`)) {
       sendCommand({ kind: "remove_terminal", terminalId: terminal.id });
     }
   };
@@ -69,7 +69,7 @@ export function TerminalDetail({
                 ))}
               </ul>
             ) : (
-              <p className="placeholder">None listed — add tool names so agents can route work here.</p>
+              <p className="placeholder">None listed — add tool names so agents can route work to this department.</p>
             )}
           </div>
           <div className="section">
@@ -131,7 +131,7 @@ export function TerminalDetail({
       {terminal && (
         <div className="section">
           <button className="btn danger" onClick={remove}>
-            Remove terminal
+            Remove department
           </button>
         </div>
       )}

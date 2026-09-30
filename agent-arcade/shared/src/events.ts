@@ -106,6 +106,9 @@ export type TerminalKind =
   | "marketing"
   | "data"
   | "chat"
+  | "legal"
+  | "logistics"
+  | "hr"
   | "custom";
 
 export const TERMINAL_KINDS: readonly TerminalKind[] = [
@@ -118,6 +121,9 @@ export const TERMINAL_KINDS: readonly TerminalKind[] = [
   "marketing",
   "data",
   "chat",
+  "legal",
+  "logistics",
+  "hr",
   "custom",
 ];
 
@@ -219,7 +225,18 @@ export type ServerMessage =
   | { kind: "snapshot"; events: ArcadeEvent[] }
   | { kind: "event"; event: ArcadeEvent }
   /** Which adapter new agents use; live needs an API key on the server. */
-  | { kind: "mode"; mode: RunMode; liveAvailable: boolean; liveModels: string[] };
+  | { kind: "mode"; mode: RunMode; liveAvailable: boolean; liveModels: string[]; workspaceRoot?: string }
+  /** Reply to list_files: what an agent has produced in its workspace. */
+  | { kind: "files"; requestId: string; agentId: string; files: WorkspaceFile[]; error?: string }
+  /** Reply to read_file. */
+  | { kind: "file"; requestId: string; agentId: string; path: string; content?: string; error?: string; truncated?: boolean };
+
+export interface WorkspaceFile {
+  path: string;
+  size: number;
+  /** Last modified, ms since epoch. */
+  mtime: number;
+}
 
 /** Commands sent over the WebSocket, client -> server. */
 export type ClientCommand =
@@ -230,6 +247,8 @@ export type ClientCommand =
   | { kind: "send_message"; agentId: string; text: string }
   | { kind: "resolve_approval"; agentId: string; actionId: string; approved: boolean }
   | { kind: "answer_question"; agentId: string; questionId: string; answer: string }
+  | { kind: "list_files"; requestId: string; agentId: string }
+  | { kind: "read_file"; requestId: string; agentId: string; path: string }
   | { kind: "pause_all" }
   | { kind: "resume_all" }
   | { kind: "stop_all" }

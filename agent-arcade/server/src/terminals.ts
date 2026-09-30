@@ -11,6 +11,30 @@ import type { DraftEvent, TerminalKind, TerminalSpec, ToolCategory } from "../..
 
 export type TerminalDraft = Omit<TerminalSpec, "id" | "universe">;
 
+/** Departments every Business universe starts with. */
+export const BUSINESS_DEPARTMENTS: TerminalDraft[] = [
+  { name: "R&D", description: "Research, competitor analysis, reading the literature", kind: "research", tools: ["web.search", "web.read"], requires: [] },
+  { name: "Engineering", description: "Build and test software: shell, builds, test runs", kind: "shell", tools: ["shell.run"], requires: [] },
+  { name: "Operations", description: "Documents, files, procedures and the day-to-day paperwork", kind: "files", tools: ["file.read", "file.write", "file.edit", "file.delete"], requires: [] },
+  { name: "Marketing", description: "Campaigns, announcements, social posts and ad creative", kind: "marketing", tools: ["ads.create_campaign", "social.post"], requires: ["Ad account"] },
+  { name: "Sales", description: "Listings, pricing, leads and closing orders", kind: "store", tools: ["store.create_listing", "crm.log_sale"], requires: ["Store / CRM connector"] },
+  { name: "Accounting", description: "Budgets, costs, invoices and cash-flow tracking", kind: "data", tools: ["finance.build_budget", "finance.record_invoice"], requires: ["Bookkeeping connector"] },
+  { name: "Legal", description: "Contracts, terms, compliance and risk review", kind: "legal", tools: ["legal.review_contract", "legal.draft_terms"], requires: [] },
+  { name: "Logistics", description: "Suppliers, inventory, shipping and fulfilment", kind: "logistics", tools: ["logistics.plan_shipment", "logistics.check_inventory"], requires: ["Carrier / inventory connector"] },
+];
+
+/** A Personal universe is smaller: a study, a desk and a toolbox. */
+export const PERSONAL_DEPARTMENTS: TerminalDraft[] = [
+  { name: "Study", description: "Search the web and read up on things", kind: "research", tools: ["web.search", "web.read"], requires: [] },
+  { name: "Desk", description: "Notes, plans, lists and documents", kind: "files", tools: ["file.read", "file.write", "file.edit", "file.delete"], requires: [] },
+  { name: "Toolbox", description: "Run scripts and commands", kind: "shell", tools: ["shell.run"], requires: [] },
+];
+
+export function defaultDepartmentsFor(universe: string): TerminalDraft[] {
+  return universe === "Personal" ? PERSONAL_DEPARTMENTS : BUSINESS_DEPARTMENTS;
+}
+
+/** Legacy generic set (kept for tests and older databases). */
 export const DEFAULT_TERMINALS: TerminalDraft[] = [
   {
     name: "Terminal",
@@ -42,6 +66,7 @@ const CATEGORY_KIND: Record<ToolCategory, TerminalKind> = {
   human: "chat",
   unknown: "files",
 };
+
 
 export class TerminalRegistry {
   private terminals = new Map<string, TerminalSpec>();
@@ -78,7 +103,7 @@ export class TerminalRegistry {
   /** Seed the defaults the first time a universe shows up. */
   ensureDefaults(universe: string): void {
     if (this.inUniverse(universe).length > 0) return;
-    for (const d of DEFAULT_TERMINALS) this.add(universe, d);
+    for (const d of defaultDepartmentsFor(universe)) this.add(universe, d);
   }
 
   /** Make sure named terminals exist in a universe (used by demo scripts). */

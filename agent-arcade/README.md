@@ -20,8 +20,9 @@ a **goal** ("Research the best 3 CRM tools and write a comparison") and
 press *Set goal & assemble team*:
 
 - a planner splits the goal into ordered **tasks** (research, build,
-  test, visuals, listing, promo, review, ... depending on the goal and
-  which terminals exist in that universe)
+  test, visuals, listing, promo, budget, legal review, shipping,
+  hiring, review, ... depending on the goal and which departments exist
+  in that universe)
 - one agent is deployed per task with a **role** (Researcher, Writer,
   Merchant, ...); the first two tasks run in parallel and the next one
   starts as each finishes
@@ -33,7 +34,7 @@ press *Set goal & assemble team*:
 - each agent card says its goal, its task and what it is doing *now*;
   the detail panel adds **standing instructions** (a text box of general
   guidance the agent always follows) and a direct message box
-- hover any building in the world to see what that terminal is for and
+- hover any building in the world to see what that department is for and
   which tools it provides
 - agents can **ask you questions**: they walk to the mailbox with a "?"
   badge, the question lands in *Questions for you* at the top of the
@@ -49,9 +50,11 @@ channel and progress reporting.
 - Event schema (v1) + pure reducer shared between live view and replay
 - MockAdapter: simulated agents, zero network/API calls (default mode)
 - Big scrollable world (drag/scroll to pan, ⌘/Ctrl+scroll or buttons to
-  zoom, minimap), two themes, universes, **terminals** (per-universe
-  stations you define: what they're for, tools they provide, what they
-  require; agents route tool calls to them)
+  zoom, minimap), two themes, universes, **departments** (buildings you
+  define per universe: R&D, Engineering, Marketing, Sales, Legal,
+  Logistics, Accounting, HR, or anything custom such as an image studio;
+  each says what it's for, which tools it provides and what it requires,
+  and agents route their work there)
 - Roster, detail panel (timeline, files changed), spawn / pause / resume /
   stop / message, approve / deny, pause-all / stop-all
 - **Live mode**: real agents on the Anthropic API (`ClaudeAdapter`) with

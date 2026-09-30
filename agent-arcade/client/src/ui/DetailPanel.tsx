@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import type { AgentView, ArcadeEvent, WorldState } from "../../../shared/src";
 import { currentTaskOf, elapsedMs, filesChanged } from "../../../shared/src";
-import { sendCommand, startReplay } from "../store";
+import { openFile, sendCommand, startReplay } from "../store";
 import { QuestionCard } from "./QuestionCard";
+import { ApprovalCard } from "./ApprovalCard";
 import { fmtClock, fmtElapsed, fmtTokens, useNow } from "./format";
 
 const TIMELINE_LIMIT = 80;
@@ -197,27 +198,7 @@ export function DetailPanel({ agent, world, replaying = false }: { agent: AgentV
         <div className="section approvals">
           <h3>Needs your approval</h3>
           {agent.pendingApprovals.map((p) => (
-            <div key={p.actionId} className="approval-card">
-              <p>{p.description}</p>
-              <div className="approval-actions">
-                <button
-                  className="btn primary"
-                  onClick={() =>
-                    sendCommand({ kind: "resolve_approval", agentId: agent.id, actionId: p.actionId, approved: true })
-                  }
-                >
-                  Approve
-                </button>
-                <button
-                  className="btn danger"
-                  onClick={() =>
-                    sendCommand({ kind: "resolve_approval", agentId: agent.id, actionId: p.actionId, approved: false })
-                  }
-                >
-                  Deny
-                </button>
-              </div>
-            </div>
+            <ApprovalCard key={p.actionId} agent={agent} approval={p} />
           ))}
         </div>
       )}
@@ -228,7 +209,9 @@ export function DetailPanel({ agent, world, replaying = false }: { agent: AgentV
           <ul className="files">
             {files.map((f) => (
               <li key={f}>
-                <code>{f}</code>
+                <button className="link" onClick={() => openFile(agent.id, f)} title="Open">
+                  <code>{f}</code>
+                </button>
               </li>
             ))}
           </ul>

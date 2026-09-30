@@ -4,15 +4,18 @@ import { TERMINAL_KINDS } from "../../../shared/src";
 import { sendCommand, setUniverse } from "../store";
 
 export const KIND_LABELS: Record<TerminalKind, string> = {
-  shell: "Shell / code",
-  research: "Research",
-  files: "Files",
-  image: "Image generation",
-  model3d: "3D models",
-  store: "Storefront",
+  research: "R&D",
+  shell: "Engineering",
+  files: "Operations",
+  image: "Design",
+  model3d: "Product / 3D",
+  store: "Sales",
   marketing: "Marketing",
-  data: "Data / analytics",
-  chat: "Messaging / CRM",
+  data: "Accounting & Finance",
+  chat: "Customer Support",
+  legal: "Legal",
+  logistics: "Logistics",
+  hr: "HR & People",
   custom: "Custom",
 };
 
@@ -44,7 +47,7 @@ export function TerminalModal({
       kind: "add_terminal",
       terminal: {
         universe: u,
-        name: name.trim() || "New terminal",
+        name: name.trim() || "New department",
         description: description.trim(),
         kind,
         tools: splitList(tools),
@@ -58,16 +61,16 @@ export function TerminalModal({
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>New terminal</h2>
+        <h2>New department</h2>
         <p className="modal-hint">
-          A terminal is a place in a universe where agents go to do one kind of work. Describe what it's for and
-          which tools it provides; agents then route matching tool calls there.
+          A department is a building where agents go to do one kind of work: Marketing, Legal, Engineering,
+          Logistics and so on. Say what it's for and which tools it provides; the planner assigns tasks to it and agents route matching work there.
         </p>
 
         <div className="field-row">
           <label className="field">
             <span>Name</span>
-            <input value={name} autoFocus placeholder="e.g. Higgsfield Studio" onChange={(e) => setName(e.target.value)} />
+            <input value={name} autoFocus placeholder="e.g. Marketing, Legal, Higgsfield Studio" onChange={(e) => setName(e.target.value)} />
           </label>
           <label className="field">
             <span>Universe</span>
@@ -92,7 +95,7 @@ export function TerminalModal({
         </label>
 
         <div className="field">
-          <span>Kind</span>
+          <span>Department type</span>
           <div className="kind-grid">
             {TERMINAL_KINDS.map((k) => (
               <button key={k} type="button" className={kind === k ? "kind on" : "kind"} onClick={() => setKind(k)}>
@@ -122,7 +125,7 @@ export function TerminalModal({
             Cancel
           </button>
           <button className="btn primary" onClick={add} disabled={!name.trim()}>
-            Add terminal
+            Add department
           </button>
         </div>
       </div>

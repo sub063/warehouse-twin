@@ -22,6 +22,8 @@ export type Step =
       args: string;
       ms: MsRange;
       say?: string;
+      /** For file.write/file.edit: what actually gets written into the workspace. */
+      content?: string;
       okResult: string;
       failResult?: string;
       /** 0..1 chance the tool call fails. */
@@ -166,27 +168,6 @@ export const MOCK_SCRIPTS: MockScript[] = [
         kind: "model3d",
         tools: ["meshy.text_to_3d"],
         requires: ["Meshy API key"],
-      },
-      {
-        name: "Storefront",
-        description: "Create product listings and set prices on the shop",
-        kind: "store",
-        tools: ["store.create_listing", "store.set_price"],
-        requires: ["Shop connector"],
-      },
-      {
-        name: "Marketing Desk",
-        description: "Run promo campaigns and social posts",
-        kind: "marketing",
-        tools: ["ads.create_campaign", "social.post"],
-        requires: ["Ads + social connectors"],
-      },
-      {
-        name: "Sales Desk",
-        description: "Track leads and log sales in the CRM",
-        kind: "chat",
-        tools: ["crm.log_sale"],
-        requires: ["CRM connector"],
       },
     ],
     steps: [

@@ -4,7 +4,7 @@
  * canvas render loop (which reads getState() directly every frame).
  */
 
-import type { ClientCommand, Universe, WorldState } from "../../shared/src";
+import type { ClientCommand, Universe, WorkspaceFile, WorldState } from "../../shared/src";
 import { initialState, reduce, reduceAll, runRange } from "../../shared/src";
 
 export interface UiState {
@@ -21,7 +21,11 @@ export interface UiState {
   /** Active universe: "Personal" or "Business". */
   activeUniverse: Universe;
   /** Left panel tab. */
-  leftTab: "team" | "tasks" | "terminals";
+  leftTab: "team" | "tasks" | "terminals" | "output";
+  /** Where agent workspaces live on the server machine (for "open the folder"). */
+  workspaceRoot?: string;
+  /** File open in the viewer, if any. */
+  viewer?: { agentId: string; path: string; content?: string; error?: string; truncated?: boolean };
   themeId: "isle" | "handheld";
   /** Ask the camera to pan to an agent or station (nonce marks each request). */
   focus?: { kind: "agent" | "station"; id: string; nonce: number };
@@ -126,6 +130,33 @@ export function setUniverse(universe: Universe): void {
   });
 }
 
+const pending = new Map<string, (reply: { files?: WorkspaceFile[]; content?: string; error?: string; truncated?: boolean }) => void>();
+let requestSeq = 0;
+function request<T>(cmd: ClientCommand & { requestId: string }, pick: (reply: { files?: WorkspaceFile[]; content?: string; error?: string; truncated?: boolean }) => T): Promise<T> {
+  return new Promise((resolve, reject) => {
+    pending.set(cmd.requestId, (reply) => (reply.error && !reply.files ? reject(new Error(reply.error)) : resolve(pick(reply))));
+    sendCommand(cmd);
+    setTimeout(() => {
+      if (pending.delete(cmd.requestId)) reject(new Error("no reply from server"));
+    }, 8000);
+  });
+}
+
+/** Files an agent has produced in its workspace (asks the server). */
+export function listFiles(agentId: string): Promise<WorkspaceFile[]> {
+  return request({ kind: "list_files", requestId: `r${++requestSeq}`, agentId }, (r) => r.files ?? []);
+}
+
+/** Open a file in the viewer; content streams in when the server replies. */
+export function openFile(agentId: string, path: string): void {
+  set({ ...state, viewer: { agentId, path } });
+  sendCommand({ kind: "read_file", requestId: `r${++requestSeq}`, agentId, path });
+}
+
+export function closeFile(): void {
+  set({ ...state, viewer: undefined });
+}
+
 export function setLeftTab(tab: UiState["leftTab"]): void {
   set({ ...state, leftTab: tab });
 }
@@ -181,6 +212,14 @@ export function connect(url = `ws://${location.hostname}:8787`): void {
           mode?: "mock" | "live";
           liveAvailable?: boolean;
           liveModels?: string[];
+          workspaceRoot?: string;
+          requestId?: string;
+          agentId?: string;
+          files?: WorkspaceFile[];
+          path?: string;
+          content?: string;
+          error?: string;
+          truncated?: boolean;
         };
         if (data.kind === "mode") {
           set({
@@ -188,11 +227,19 @@ export function connect(url = `ws://${location.hostname}:8787`): void {
             mode: data.mode === "live" ? "live" : "mock",
             liveAvailable: data.liveAvailable === true,
             liveModels: Array.isArray(data.liveModels) ? data.liveModels : [],
+            workspaceRoot: typeof data.workspaceRoot === "string" ? data.workspaceRoot : state.workspaceRoot,
           });
         } else if (data.kind === "snapshot" && Array.isArray(data.events)) {
           const world = reduceAll(data.events);
           logNewIgnored(state.world, world);
           set({ ...state, world });
+        } else if ((data.kind === "files" || data.kind === "file") && typeof data.requestId === "string") {
+          const waiter = pending.get(data.requestId);
+          pending.delete(data.requestId);
+          waiter?.(data);
+          if (data.kind === "file" && state.viewer && state.viewer.agentId === data.agentId && state.viewer.path === data.path) {
+            set({ ...state, viewer: { ...state.viewer, content: data.content, error: data.error, truncated: data.truncated } });
+          }
         } else if (data.kind === "event") {
           const world = reduce(state.world, data.event);
           logNewIgnored(state.world, world);

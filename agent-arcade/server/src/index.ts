@@ -23,6 +23,7 @@ import { hasApiKey, loadEnv } from "./env";
 import { MockAdapter } from "./mockAdapter";
 import { MOCK_SCRIPTS } from "./mockScripts";
 import { TerminalRegistry } from "./terminals";
+import { listWorkspace, readInside, workspaceFor } from "./sandbox";
 
 loadEnv();
 
@@ -59,6 +60,7 @@ const firstRun = restored.order.length === 0;
 
 const mock = new MockAdapter({
   autoResolveApprovalsMs: null,
+  workspaceRoot: WORKSPACE_ROOT,
   resolveTerminal: (universe, tool, category) => terminals.resolve(universe, tool, category),
 });
 mock.onEvent((draft) => bus.publish(draft));
@@ -113,7 +115,7 @@ bus.subscribe((e) => {
 });
 
 function modeMessage(): ServerMessage {
-  return { kind: "mode", mode, liveAvailable, liveModels: [...LIVE_MODELS] };
+  return { kind: "mode", mode, liveAvailable, liveModels: [...LIVE_MODELS], workspaceRoot: WORKSPACE_ROOT };
 }
 
 /** Clamp and default a spawn spec from the client (it's untrusted input). */
@@ -168,8 +170,27 @@ function broadcast(msg: ServerMessage): void {
   for (const c of wss.clients) if (c.readyState === WebSocket.OPEN) c.send(data);
 }
 
-function handleCommand(cmd: ClientCommand): void {
+function handleCommand(cmd: ClientCommand, reply: (m: ServerMessage) => void = () => {}): void {
   switch (cmd.kind) {
+    case "list_files": {
+      if (typeof cmd.requestId !== "string" || typeof cmd.agentId !== "string") return;
+      try {
+        reply({ kind: "files", requestId: cmd.requestId, agentId: cmd.agentId, files: listWorkspace(workspaceFor(WORKSPACE_ROOT, cmd.agentId)) });
+      } catch (err) {
+        reply({ kind: "files", requestId: cmd.requestId, agentId: cmd.agentId, files: [], error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
+    case "read_file": {
+      if (typeof cmd.requestId !== "string" || typeof cmd.agentId !== "string" || typeof cmd.path !== "string") return;
+      try {
+        const { content, truncated } = readInside(workspaceFor(WORKSPACE_ROOT, cmd.agentId), cmd.path);
+        reply({ kind: "file", requestId: cmd.requestId, agentId: cmd.agentId, path: cmd.path, content, truncated });
+      } catch (err) {
+        reply({ kind: "file", requestId: cmd.requestId, agentId: cmd.agentId, path: cmd.path, error: err instanceof Error ? err.message : String(err) });
+      }
+      return;
+    }
     case "spawn": {
       const spec = sanitizeSpec(cmd.spec);
       if (!spec) return;
@@ -287,7 +308,9 @@ wss.on("connection", (ws: WebSocket) => {
     try {
       const cmd = JSON.parse(String(data)) as ClientCommand;
       if (typeof cmd === "object" && cmd !== null && typeof cmd.kind === "string") {
-        handleCommand(cmd);
+        handleCommand(cmd, (m) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m));
+        });
       }
     } catch {
       // Malformed command: ignore. The UI only sends well-formed JSON.

@@ -10,6 +10,9 @@
  */
 
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { resolveInside, SandboxError, workspaceFor } from "./sandbox";
 import type { AgentAdapter, AgentSpec, AgentState, DraftEvent, ToolCategory } from "../../shared/src";
 import type { MockScript, MsRange, Step } from "./mockScripts";
 
@@ -49,6 +52,8 @@ export interface MockAdapterOptions {
   autoResolveApprovalsMs?: MsRange | null;
   /** Route a tool call to a terminal in the agent's universe. */
   resolveTerminal?: (universe: string, tool: string, category: ToolCategory) => string | undefined;
+  /** When set, mock file.write/file.edit steps write real files under <root>/<agentId>/. */
+  workspaceRoot?: string;
 }
 
 export class MockAdapter implements AgentAdapter {
@@ -56,10 +61,12 @@ export class MockAdapter implements AgentAdapter {
   private listeners = new Set<(e: DraftEvent) => void>();
   private autoResolve: MsRange | null;
   private resolveTerminal: MockAdapterOptions["resolveTerminal"];
+  private workspaceRoot?: string;
 
   constructor(opts: MockAdapterOptions = {}) {
     this.autoResolve = opts.autoResolveApprovalsMs === undefined ? [7000, 12000] : opts.autoResolveApprovalsMs;
     this.resolveTerminal = opts.resolveTerminal;
+    this.workspaceRoot = opts.workspaceRoot;
   }
 
   onEvent(listener: (e: DraftEvent) => void): void {
@@ -375,6 +382,26 @@ export class MockAdapter implements AgentAdapter {
     }
   }
 
+  /** Mock agents leave real files behind so their work can be inspected. */
+  private materialize(r: Runner, step: Extract<Step, { kind: "tool" }>): void {
+    if (!this.workspaceRoot || (step.tool !== "file.write" && step.tool !== "file.edit")) return;
+    const rel = step.args.split(/\s+/)[0];
+    if (!rel) return;
+    try {
+      const ws = workspaceFor(this.workspaceRoot, r.id);
+      const full = resolveInside(ws, rel);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      const spec = r.script.spec;
+      const body =
+        step.content ??
+        `# ${rel.split("/").pop()?.replace(/\.[a-z]+$/, "") ?? "notes"}\n\n_Written by ${spec.name}${spec.role ? ` (${spec.role})` : ""} · ${new Date().toISOString()}_\n\nGoal: ${spec.goal}\n\n${step.say ?? "Notes from this run."}\n`;
+      if (step.tool === "file.edit" && fs.existsSync(full)) fs.appendFileSync(full, `\n${body}`);
+      else fs.writeFileSync(full, body);
+    } catch (err) {
+      if (!(err instanceof SandboxError)) throw err;
+    }
+  }
+
   private runTool(r: Runner, step: Extract<Step, { kind: "tool" }>): void {
     this.setState(r, "using_tool");
     if (step.say) this.emit({ agentId: r.id, type: "message", payload: { from: "agent", text: step.say } });
@@ -387,6 +414,7 @@ export class MockAdapter implements AgentAdapter {
     const ms = dur(step.ms);
     this.schedule(r, ms, () => {
       const failed = Math.random() < (step.failChance ?? 0);
+      if (!failed) this.materialize(r, step);
       this.emit({
         agentId: r.id,
         type: "tool.finished",

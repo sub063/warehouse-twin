@@ -790,6 +790,9 @@ body {
 .kind-marketing { background: #f0508a; }
 .kind-data { background: #5474a6; }
 .kind-chat { background: #f5a623; }
+.kind-legal { background: #6b5b95; }
+.kind-logistics { background: #e0862e; }
+.kind-hr { background: #d9534f; }
 
 .tool-group {
   margin-top: 6px;
@@ -1466,4 +1469,106 @@ body {
   color: #fff;
   font-weight: 700;
   animation: pulse 1.6s ease-in-out infinite;
+}
+
+/* ----------------------------------------------------- output tab + file viewer */
+
+.output h3 {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 14px 0 8px;
+}
+.output-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.output-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #fff;
+}
+.output-card.final {
+  border-color: rgba(48, 199, 88, 0.5);
+  background: rgba(48, 199, 88, 0.06);
+}
+.output-card .row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.output-card .name {
+  font-weight: 700;
+  padding: 0;
+}
+.output-card .task-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 4px 0;
+}
+.output-card p {
+  margin: 4px 0;
+}
+.files.clickable .link {
+  padding: 0;
+}
+.files.clickable code:hover {
+  background: rgba(0, 122, 255, 0.12);
+}
+.output .folder code {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.modal.viewer {
+  width: 820px;
+  display: flex;
+  flex-direction: column;
+}
+.viewer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.viewer-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+.viewer-head p {
+  margin: 2px 0 0;
+}
+.file-body {
+  margin: 0;
+  padding: 14px;
+  background: rgba(20, 40, 70, 0.05);
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
+  max-height: calc(100vh - 180px);
+}
+
+.inbox.approvals .approval-card {
+  margin-bottom: 8px;
+}
+.inbox h3 .count.warn {
+  background: var(--orange);
+}
+.approval-card .from {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0;
+  margin-bottom: 2px;
 }
