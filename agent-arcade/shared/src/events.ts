@@ -44,6 +44,11 @@ export interface AgentSpec {
   budget: Budget;
   /** Default true: shell commands and deletions need human approval. */
   approvalRequired: boolean;
+  /**
+   * The universe (workspace) this agent lives in, e.g. "Personal",
+   * "Business", or a project name. The UI shows one universe at a time.
+   */
+  universe: string;
 }
 
 /** Payloads per event type. */

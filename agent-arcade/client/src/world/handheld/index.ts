@@ -405,11 +405,11 @@ export const handheldTheme: Theme = {
   id: "handheld",
   name: "Handheld",
   palette: PALETTE,
-  tileSize: TILE,
-  cols: COLS,
-  rows: ROWS,
+  scaling: "integer",
   width: COLS * TILE,
   height: ROWS * TILE,
+  walkSpeed: 55,
+  bubbleClearance: 25,
   stations: STATIONS,
 
   station(id: StationId): StationDef {

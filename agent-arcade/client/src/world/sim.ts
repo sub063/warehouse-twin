@@ -7,7 +7,7 @@
 import type { AgentView, WorldState } from "../../../shared/src";
 import type { StationId, Theme } from "./theme";
 
-const WALK_SPEED = 55; // px/s at base resolution
+// Walk speed comes from the theme (worlds differ in logical size).
 
 export interface Sprite {
   agentId: string;
@@ -49,12 +49,17 @@ export class WorldSim {
     }
   }
 
-  tick(world: WorldState, dtMs: number): Sprite[] {
+  /**
+   * Advance sprites. `visible` filters which agents are in the world
+   * right now (e.g. the active universe); sprites of filtered-out
+   * agents are removed and re-enter at the dock when they return.
+   */
+  tick(world: WorldState, dtMs: number, visible?: (a: AgentView) => boolean): Sprite[] {
     const dt = Math.min(dtMs, 100) / 1000;
 
     world.order.forEach((id, index) => {
       const a = world.agents[id];
-      if (!a) return;
+      if (!a || (visible && !visible(a))) return;
       let s = this.sprites.get(id);
       if (!s) {
         const spawn = this.slotFor("dock", index);
@@ -82,7 +87,7 @@ export class WorldSim {
       // L-shaped walk: horizontal leg first, then vertical.
       const dx = s.targetX - s.x;
       const dy = s.targetY - s.y;
-      const step = WALK_SPEED * dt;
+      const step = this.theme.walkSpeed * dt;
       if (Math.abs(dx) > 0.5) {
         const move = Math.sign(dx) * Math.min(Math.abs(dx), step);
         s.x += move;
@@ -99,9 +104,10 @@ export class WorldSim {
       }
     });
 
-    // Drop sprites for agents that vanished (shouldn't happen, but cheap).
+    // Drop sprites for agents that vanished or were filtered out.
     for (const id of this.sprites.keys()) {
-      if (!(id in world.agents)) this.sprites.delete(id);
+      const a = world.agents[id];
+      if (!a || (visible && !visible(a))) this.sprites.delete(id);
     }
 
     // Draw order: back-to-front by y.

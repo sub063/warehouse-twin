@@ -54,6 +54,7 @@ export const MOCK_SCRIPTS: MockScript[] = [
       allowedTools: ["web.search", "web.read", "file.write"],
       budget: { maxTokens: 50_000 },
       approvalRequired: true,
+      universe: "Personal",
     },
     steps: [
       { kind: "say", text: "on it, researching now" },
@@ -79,6 +80,7 @@ export const MOCK_SCRIPTS: MockScript[] = [
       allowedTools: ["file.read", "file.edit", "shell.run"],
       budget: { maxTokens: 30_000 },
       approvalRequired: true,
+      universe: "Business",
     },
     steps: [
       { kind: "say", text: "starting the refactor" },
@@ -101,6 +103,7 @@ export const MOCK_SCRIPTS: MockScript[] = [
       allowedTools: ["file.read", "file.edit", "shell.run"],
       budget: { maxTokens: 40_000 },
       approvalRequired: true,
+      universe: "Project Atlas",
     },
     steps: [
       { kind: "say", text: "hunting the flaky test" },
@@ -122,6 +125,7 @@ export const MOCK_SCRIPTS: MockScript[] = [
       allowedTools: ["web.search", "file.write", "git.log"],
       budget: { maxTokens: 60_000 },
       approvalRequired: true,
+      universe: "Project Atlas",
     },
     steps: [
       { kind: "say", text: "drafting release notes" },
@@ -141,6 +145,7 @@ export const MOCK_SCRIPTS: MockScript[] = [
       allowedTools: ["shell.run", "file.edit", "file.delete"],
       budget: { maxUsd: 0.08 },
       approvalRequired: true,
+      universe: "Business",
     },
     steps: [
       { kind: "say", text: "auditing the deps" },

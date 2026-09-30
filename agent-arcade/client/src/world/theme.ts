@@ -35,19 +35,33 @@ export interface AgentVisual {
 export interface Theme {
   id: string;
   name: string;
-  /** Exactly four CSS colors, darkest to lightest. */
-  palette: readonly [string, string, string, string];
-  tileSize: number;
-  cols: number;
-  rows: number;
-  /** Base-resolution canvas size in px (cols*tileSize x rows*tileSize). */
+  /** The theme's color palette (pixel themes keep it tiny, smooth themes don't). */
+  palette: readonly string[];
+  /**
+   * "integer": render at base resolution, blit at integer scale with
+   * nearest-neighbor (crisp pixel art). "smooth": vector drawing at any
+   * fractional scale with antialiasing (smooth mobile-game look).
+   */
+  scaling: "integer" | "smooth";
+  /** Logical canvas size the theme draws in. */
   width: number;
   height: number;
+  /** Agent walk speed in logical px/s (worlds differ in size). */
+  walkSpeed: number;
+  /**
+   * How far above an agent's feet (logical px) speech bubbles start —
+   * high enough to clear the sprite and any overhead state badges.
+   */
+  bubbleClearance: number;
   stations: StationDef[];
   station(id: StationId): StationDef;
   stationFor(category: ToolCategory): StationId;
-  /** Draw the static world (ground, decorations, stations, labels). */
-  drawWorld(ctx: CanvasRenderingContext2D): void;
+  /**
+   * Draw the world (ground, decorations, stations, labels). Integer
+   * themes are drawn once and cached; smooth themes are drawn every
+   * frame and may animate with timeMs.
+   */
+  drawWorld(ctx: CanvasRenderingContext2D, timeMs: number): void;
   /** Draw one agent (sprite + state overlays) with feet at (x, y). */
   drawAgent(ctx: CanvasRenderingContext2D, x: number, y: number, v: AgentVisual): void;
   /** Speech bubble above a head at (x, y = top of sprite). */

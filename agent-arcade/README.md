@@ -1,16 +1,25 @@
 # Agent Arcade
 
-A visual control room for AI agents: deploy, manage, and watch agents work as
-characters in a small retro pixel-art world ("Handheld" theme), backed by a
-real event-sourced control panel.
+A visual control room for AI agents: deploy, manage, and watch agents work
+as characters in a small game world, backed by a real event-sourced control
+panel. The UI chrome is a clean, Apple-style frosted design; the world
+renderer sits behind a `Theme` interface with two looks:
 
-## Status: Milestone 1
+- **Isle** (default): smooth mobile-game island — 3/4-view buildings,
+  round agent bots, vector-drawn in code, sharp at any scale
+- **Handheld**: retro 4-shade pixel world, integer-scaled and crisp
+
+Agents live in **universes** (e.g. Personal, Business, per-project
+workspaces). The top-bar switcher filters the world, roster, and cost to
+one universe at a time; "All" shows everything.
+
+## Status: Milestone 1 (+ design iteration)
 
 - Event schema (v1) + pure reducer shared between live view and replay
 - MockAdapter: simulated agents, zero network/API calls (default mode)
-- Handheld world: stations (Terminal, Library, Workshop, Mailbox, Dock),
-  walking sprites, speech bubbles, and per-state visuals
-- 3 mock agents run on launch
+- Both themes: stations (Terminal, Library, Workshop, Mailbox, Dock),
+  walking agents, speech bubbles, and per-state visuals
+- Universe switcher; 3 mock agents across universes on launch
 
 Milestones 2–4 (full roster/detail/controls, real-agent adapter, SQLite +
 replay) are not built yet.
@@ -34,8 +43,9 @@ Open http://127.0.0.1:5173.
 - `shared/` — event types, pure reducer, `AgentAdapter` interface
 - `server/` — Node + TS: event bus, WebSocket fan-out, `MockAdapter`
 - `client/` — Vite + React + TS: store, world renderer behind a `Theme`
-  interface (`client/src/world/theme.ts`), Handheld theme art in
-  `client/src/world/handheld/`
+  interface (`client/src/world/theme.ts`); themes in
+  `client/src/world/isle/` (smooth vector) and
+  `client/src/world/handheld/` (pixel art)
 
 Everything the UI shows derives from the event stream via
 `shared/src/reducer.ts`.

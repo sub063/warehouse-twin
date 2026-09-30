@@ -1,19 +1,24 @@
 /**
- * The world canvas. Renders at the theme's base resolution into an
- * offscreen canvas, then blits at the largest integer scale that fits —
- * nearest-neighbor, so pixels stay crisp at 2x/3x/4x.
+ * The world canvas. Two render paths, picked by the theme:
+ *
+ * - "integer" (pixel themes): render at base resolution offscreen, blit
+ *   at the largest integer scale with nearest-neighbor — crisp pixels.
+ * - "smooth" (vector themes): scale the context (including device pixel
+ *   ratio) and let the theme draw vector shapes every frame — smooth,
+ *   mobile-game look at any size.
  */
 
 import { useEffect, useRef } from "react";
+import type { AgentView } from "../../../shared/src";
 import { getState, selectAgent } from "../store";
 import { WorldSim } from "./sim";
 import type { AgentVisual, Theme } from "./theme";
 
-export function WorldCanvas({ theme }: { theme: Theme }) {
+export function WorldCanvas({ theme, universe }: { theme: Theme; universe: string | null }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const simRef = useRef<WorldSim | null>(null);
-  const scaleRef = useRef(1);
+  const universeRef = useRef<string | null>(universe);
+  universeRef.current = universe;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -21,35 +26,55 @@ export function WorldCanvas({ theme }: { theme: Theme }) {
     if (!canvas || !wrap) return;
 
     const sim = new WorldSim(theme);
-    simRef.current = sim;
+    const smooth = theme.scaling === "smooth";
+    const ctx = canvas.getContext("2d")!;
 
-    // Offscreen base-resolution layers.
+    // Offscreen layers for the integer path.
     const base = document.createElement("canvas");
     base.width = theme.width;
     base.height = theme.height;
     const bctx = base.getContext("2d")!;
-
     const still = document.createElement("canvas");
     still.width = theme.width;
     still.height = theme.height;
-    const sctx = still.getContext("2d")!;
-    theme.drawWorld(sctx);
+    if (!smooth) theme.drawWorld(still.getContext("2d")!, 0);
 
-    const ctx = canvas.getContext("2d")!;
+    // View transform state (logical -> canvas element px).
+    let scale = 1;
+    let offX = 0;
+    let offY = 0;
+    const dpr = smooth ? Math.min(window.devicePixelRatio || 1, 2) : 1;
 
     const applyScale = () => {
       const rect = wrap.getBoundingClientRect();
-      const scale = Math.max(1, Math.floor(Math.min(rect.width / theme.width, rect.height / theme.height)));
-      scaleRef.current = scale;
-      canvas.width = theme.width * scale;
-      canvas.height = theme.height * scale;
-      canvas.style.width = `${theme.width * scale}px`;
-      canvas.style.height = `${theme.height * scale}px`;
-      ctx.imageSmoothingEnabled = false;
+      if (smooth) {
+        const cssW = Math.max(200, rect.width);
+        const cssH = Math.max(150, rect.height);
+        canvas.width = Math.round(cssW * dpr);
+        canvas.height = Math.round(cssH * dpr);
+        canvas.style.width = `${cssW}px`;
+        canvas.style.height = `${cssH}px`;
+        scale = Math.min(cssW / theme.width, cssH / theme.height);
+        offX = (cssW - theme.width * scale) / 2;
+        offY = (cssH - theme.height * scale) / 2;
+        ctx.imageSmoothingEnabled = true;
+      } else {
+        scale = Math.max(1, Math.floor(Math.min(rect.width / theme.width, rect.height / theme.height)));
+        offX = 0;
+        offY = 0;
+        canvas.width = theme.width * scale;
+        canvas.height = theme.height * scale;
+        canvas.style.width = `${canvas.width}px`;
+        canvas.style.height = `${canvas.height}px`;
+        ctx.imageSmoothingEnabled = false;
+      }
     };
     applyScale();
     const ro = new ResizeObserver(applyScale);
     ro.observe(wrap);
+
+    const inUniverse = (a: AgentView) =>
+      universeRef.current === null || a.spec.universe === universeRef.current;
 
     let raf = 0;
     let last = performance.now();
@@ -57,9 +82,16 @@ export function WorldCanvas({ theme }: { theme: Theme }) {
       const dt = now - last;
       last = now;
       const { world, selectedAgentId } = getState();
-      const sprites = sim.tick(world, dt);
+      const sprites = sim.tick(world, dt, inUniverse);
 
-      bctx.drawImage(still, 0, 0);
+      // Pick the drawing context for this path.
+      const dctx = smooth ? ctx : bctx;
+      if (smooth) {
+        ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, dpr * offY);
+        theme.drawWorld(dctx, now);
+      } else {
+        bctx.drawImage(still, 0, 0);
+      }
 
       // Sprites, back to front.
       for (const s of sprites) {
@@ -73,14 +105,14 @@ export function WorldCanvas({ theme }: { theme: Theme }) {
           timeMs: now,
           selected: s.agentId === selectedAgentId,
         };
-        theme.drawAgent(bctx, s.x, s.y, visual);
+        theme.drawAgent(dctx, s.x, s.y, visual);
       }
 
       // Unknown-tool label at the workshop.
       for (const s of sprites) {
         const a = world.agents[s.agentId];
         if (a?.state === "using_tool" && a.currentTool?.category === "unknown" && !s.walking) {
-          theme.drawLabel(bctx, s.x, s.y + 4, a.currentTool.tool);
+          theme.drawLabel(dctx, s.x, s.y + 4, a.currentTool.tool);
         }
       }
 
@@ -89,22 +121,23 @@ export function WorldCanvas({ theme }: { theme: Theme }) {
       for (const s of sprites) {
         const a = world.agents[s.agentId];
         if (!a?.bubble) continue;
-        // Hide stale bubbles: only show for a while after the last message.
         const lastMsg = [...a.timeline].reverse().find((e) => e.type === "message" && e.payload.from === "agent");
         if (!lastMsg || Date.now() - lastMsg.ts > 8000) continue;
-        const stagger = (world.order.indexOf(s.agentId) % 3) * 5;
-        theme.drawBubble(bctx, s.x, s.y - 14 - stagger, a.bubble);
+        const stagger = (world.order.indexOf(s.agentId) % 3) * 6;
+        theme.drawBubble(dctx, s.x, s.y - theme.bubbleClearance - stagger, a.bubble);
       }
 
-      ctx.drawImage(base, 0, 0, canvas.width, canvas.height);
+      if (!smooth) {
+        ctx.drawImage(base, 0, 0, canvas.width, canvas.height);
+      }
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
 
     const onClick = (ev: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
-      const x = (ev.clientX - rect.left) / scaleRef.current;
-      const y = (ev.clientY - rect.top) / scaleRef.current;
+      const x = (ev.clientX - rect.left - offX) / scale;
+      const y = (ev.clientY - rect.top - offY) / scale;
       selectAgent(sim.hitTest(x, y));
     };
     canvas.addEventListener("click", onClick);
@@ -117,7 +150,7 @@ export function WorldCanvas({ theme }: { theme: Theme }) {
   }, [theme]);
 
   return (
-    <div className="world-wrap" ref={wrapRef}>
+    <div className={`world-wrap ${theme.scaling}`} ref={wrapRef}>
       <canvas ref={canvasRef} className="world-canvas" />
     </div>
   );

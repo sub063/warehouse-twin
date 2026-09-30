@@ -9,6 +9,7 @@ const spec: AgentSpec = {
   allowedTools: ["shell", "search"],
   budget: { maxTokens: 1000 },
   approvalRequired: true,
+  universe: "Testland",
 };
 
 let seqCounter = 0;

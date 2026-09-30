@@ -13,9 +13,18 @@ export interface UiState {
   /** "mock" until milestone 3 introduces live mode. */
   mode: "mock";
   selectedAgentId?: string;
+  /** Active universe (workspace) filter; null = all universes. */
+  activeUniverse: string | null;
+  themeId: "isle" | "handheld";
 }
 
-let state: UiState = { world: initialState(), connected: false, mode: "mock" };
+let state: UiState = {
+  world: initialState(),
+  connected: false,
+  mode: "mock",
+  activeUniverse: null,
+  themeId: "isle",
+};
 const listeners = new Set<() => void>();
 
 export function getState(): UiState {
@@ -34,6 +43,27 @@ function set(next: UiState): void {
 
 export function selectAgent(id: string | undefined): void {
   set({ ...state, selectedAgentId: id });
+}
+
+export function setUniverse(universe: string | null): void {
+  // Drop the selection if the selected agent isn't in the new universe.
+  const sel = state.selectedAgentId ? state.world.agents[state.selectedAgentId] : undefined;
+  const keep = sel && (universe === null || sel.spec.universe === universe);
+  set({ ...state, activeUniverse: universe, selectedAgentId: keep ? state.selectedAgentId : undefined });
+}
+
+export function setTheme(themeId: "isle" | "handheld"): void {
+  set({ ...state, themeId });
+}
+
+/** Unique universe names, in first-seen (agent creation) order. */
+export function universesOf(world: WorldState): string[] {
+  const seen: string[] = [];
+  for (const id of world.order) {
+    const u = world.agents[id]?.spec.universe;
+    if (u && !seen.includes(u)) seen.push(u);
+  }
+  return seen;
 }
 
 function logNewIgnored(prev: WorldState, next: WorldState): void {
