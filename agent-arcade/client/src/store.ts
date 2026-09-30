@@ -5,7 +5,7 @@
  */
 
 import type { ClientCommand, WorldState } from "../../shared/src";
-import { initialState, reduce, reduceAll } from "../../shared/src";
+import { initialState, reduce, reduceAll, runRange } from "../../shared/src";
 
 export interface UiState {
   world: WorldState;
@@ -23,6 +23,8 @@ export interface UiState {
   themeId: "isle" | "handheld";
   /** Ask the camera to pan to an agent or station (nonce marks each request). */
   focus?: { kind: "agent" | "station"; id: string; nonce: number };
+  /** Replay of one finished run: the world is rebuilt up to cursorTs. */
+  replay?: { agentId: string; startTs: number; endTs: number; cursorTs: number; playing: boolean; speed: number };
 }
 
 let state: UiState = {
@@ -52,6 +54,50 @@ function set(next: UiState): void {
 
 export function selectAgent(id: string | undefined): void {
   set({ ...state, selectedAgentId: id, selectedTerminalId: id ? undefined : state.selectedTerminalId });
+}
+
+export function startReplay(agentId: string): void {
+  const a = state.world.agents[agentId];
+  if (!a) return;
+  const { startTs, endTs } = runRange(a);
+  set({
+    ...state,
+    selectedAgentId: agentId,
+    selectedTerminalId: undefined,
+    activeUniverse: a.spec.universe,
+    replay: { agentId, startTs, endTs, cursorTs: startTs, playing: true, speed: 4 },
+  });
+}
+
+export function exitReplay(): void {
+  set({ ...state, replay: undefined });
+}
+
+export function setReplay(patch: Partial<NonNullable<UiState["replay"]>>): void {
+  if (!state.replay) return;
+  const r = { ...state.replay, ...patch };
+  r.cursorTs = Math.max(r.startTs, Math.min(r.endTs, r.cursorTs));
+  if (r.cursorTs >= r.endTs) r.playing = false;
+  set({ ...state, replay: r });
+}
+
+let lastReplayNotify = 0;
+/**
+ * Advance the replay clock from the render loop. The state object is
+ * replaced every call (so getState() is always current) but React
+ * subscribers are notified at most ~10x per second.
+ */
+export function advanceReplay(dtMs: number): void {
+  const r = state.replay;
+  if (!r || !r.playing) return;
+  const cursorTs = Math.min(r.endTs, r.cursorTs + dtMs * r.speed);
+  const playing = cursorTs < r.endTs;
+  state = { ...state, replay: { ...r, cursorTs, playing } };
+  const now = performance.now();
+  if (!playing || now - lastReplayNotify > 100) {
+    lastReplayNotify = now;
+    for (const l of listeners) l();
+  }
 }
 
 export function focusOn(kind: "agent" | "station", id: string): void {

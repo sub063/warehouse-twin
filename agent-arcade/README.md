@@ -13,7 +13,7 @@ Agents live in **universes** (e.g. Personal, Business, per-project
 workspaces). The top-bar switcher filters the world, roster, and cost to
 one universe at a time; "All" shows everything.
 
-## Status: Milestones 1–3 done
+## Status: Milestones 1–4 done
 
 - Event schema (v1) + pure reducer shared between live view and replay
 - MockAdapter: simulated agents, zero network/API calls (default mode)
@@ -25,8 +25,17 @@ one universe at a time; "All" shows everything.
   stop / message, approve / deny, pause-all / stop-all
 - **Live mode**: real agents on the Anthropic API (`ClaudeAdapter`) with
   per-agent workspace sandboxing and approval gating — see below
+- **Persistence + replay**: the event log and agent records live in
+  SQLite (`agent-arcade/data/arcade.db`, Node's built-in `node:sqlite`,
+  no extra dependency). Everything survives a restart — agents,
+  terminals, universes — and any finished run can be replayed from its
+  detail panel with a timeline scrubber (play/pause, 1×/4×/16×), driven
+  by the same reducer as the live view.
 
-Milestone 4 (SQLite persistence + replay scrubber) is not built yet.
+Notes: demo mock agents are seeded only on a fresh database (or with
+`MOCK_AGENTS=n`); agents still running when the server stops are closed
+out as "stopped" on the next start. Set `ARCADE_DB=":memory:"` to run
+without persistence.
 
 ## Live mode (real agents)
 

@@ -1,7 +1,8 @@
-import { useState, useSyncExternalStore } from "react";
-import { terminalsIn } from "../../shared/src";
+import { useMemo, useState, useSyncExternalStore } from "react";
+import { ReplayPlayer, terminalsIn } from "../../shared/src";
 import { focusOn, getState, selectTerminal, sendCommand, setTheme, setUniverse, subscribe, universesOf } from "./store";
 import { DetailPanel } from "./ui/DetailPanel";
+import { ReplayBar } from "./ui/ReplayBar";
 import { Roster } from "./ui/Roster";
 import { SpawnModal } from "./ui/SpawnModal";
 import { TerminalDetail } from "./ui/TerminalDetail";
@@ -15,9 +16,17 @@ const THEMES = { isle: isleTheme, handheld: handheldTheme } as const;
 
 export function App() {
   const state = useSyncExternalStore(subscribe, getState);
-  const { world, connected, mode, liveAvailable, selectedAgentId, selectedTerminalId, activeUniverse, themeId } = state;
+  const { world, connected, mode, liveAvailable, selectedAgentId, selectedTerminalId, activeUniverse, themeId, replay } = state;
   const theme = THEMES[themeId];
   const [modal, setModal] = useState<"spawn" | "terminal" | null>(null);
+
+  // In replay, the detail panel shows the run as it was at the cursor.
+  const replayAgentLive = replay ? world.agents[replay.agentId] : undefined;
+  const replayPlayer = useMemo(
+    () => (replayAgentLive ? new ReplayPlayer(replayAgentLive.timeline) : null),
+    [replayAgentLive],
+  );
+  const replayAgent = replay && replayPlayer ? replayPlayer.seek(replay.cursorTs).agents[replay.agentId] : undefined;
 
   const universes = universesOf(world);
   const visibleIds = world.order.filter(
@@ -31,7 +40,7 @@ export function App() {
       ? terminals.filter((t, i) => terminals.findIndex((u) => u.name === t.name && u.kind === t.kind) === i)
       : terminals;
   const scopeCost = visibleIds.reduce((sum, id) => sum + (world.agents[id]?.usage.costUsd ?? 0), 0);
-  const selected = selectedAgentId ? world.agents[selectedAgentId] : undefined;
+  const selected = replay ? replayAgent : selectedAgentId ? world.agents[selectedAgentId] : undefined;
   const selectedTerminal = selectedTerminalId ? world.terminals[selectedTerminalId] : undefined;
 
   const active = world.order
@@ -141,12 +150,16 @@ export function App() {
 
         <main className="center">
           <WorldCanvas theme={theme} universe={activeUniverse} terminals={worldTerminals} />
+          {replay && <ReplayBar agent={replayAgentLive} replay={replay} />}
         </main>
 
         <aside className="panel right">
-          <h2>{selectedTerminalId ? "Terminal" : "Agent detail"}</h2>
+          <h2>
+            {selectedTerminalId && !replay ? "Terminal" : "Agent detail"}
+            {replay && <span className="replay-badge">REPLAY</span>}
+          </h2>
           {selected ? (
-            <DetailPanel agent={selected} />
+            <DetailPanel agent={selected} replaying={Boolean(replay)} />
           ) : selectedTerminalId ? (
             <TerminalDetail
               stationId={selectedTerminalId}

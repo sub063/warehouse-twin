@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AgentView, ArcadeEvent } from "../../../shared/src";
 import { elapsedMs, filesChanged } from "../../../shared/src";
-import { sendCommand } from "../store";
+import { sendCommand, startReplay } from "../store";
 import { fmtClock, fmtElapsed, fmtTokens, useNow } from "./format";
 
 const TIMELINE_LIMIT = 80;
@@ -62,10 +62,11 @@ function Row({ ts, icon, cls, text }: { ts: number; icon: string; cls: string; t
   );
 }
 
-export function DetailPanel({ agent }: { agent: AgentView }) {
+export function DetailPanel({ agent, replaying = false }: { agent: AgentView; replaying?: boolean }) {
   const now = useNow(1000);
   const [draft, setDraft] = useState("");
   const finished = agent.state === "done" || (agent.state === "error" && agent.outcome !== undefined);
+  const canReplay = finished && !replaying;
   const files = filesChanged(agent);
   const timeline = agent.timeline.slice(-TIMELINE_LIMIT).reverse();
 
@@ -91,7 +92,15 @@ export function DetailPanel({ agent }: { agent: AgentView }) {
         {agent.spec.budget.maxUsd !== undefined && ` / $${agent.spec.budget.maxUsd} budget`}
       </p>
 
-      {!finished && (
+      {canReplay && (
+        <div className="controls">
+          <button className="btn primary" onClick={() => startReplay(agent.id)}>
+            ▶ Replay run
+          </button>
+        </div>
+      )}
+
+      {!finished && !replaying && (
         <div className="controls">
           {agent.state === "paused" ? (
             <button className="btn" onClick={() => sendCommand({ kind: "resume", agentId: agent.id })}>
@@ -108,7 +117,7 @@ export function DetailPanel({ agent }: { agent: AgentView }) {
         </div>
       )}
 
-      {!finished && (
+      {!finished && !replaying && (
         <div className="message-box">
           <input
             value={draft}
@@ -122,7 +131,7 @@ export function DetailPanel({ agent }: { agent: AgentView }) {
         </div>
       )}
 
-      {!finished && agent.pendingApprovals.length > 0 && (
+      {!finished && !replaying && agent.pendingApprovals.length > 0 && (
         <div className="section approvals">
           <h3>Needs your approval</h3>
           {agent.pendingApprovals.map((p) => (

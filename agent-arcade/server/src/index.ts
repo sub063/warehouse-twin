@@ -14,9 +14,10 @@ import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { WebSocketServer, WebSocket } from "ws";
 import type { AgentAdapter, AgentSpec, ClientCommand, RunMode, ServerMessage, TerminalSpec } from "../../shared/src";
-import { TERMINAL_KINDS } from "../../shared/src";
+import { reduceAll, TERMINAL_KINDS } from "../../shared/src";
 import { EventBus } from "./bus";
 import { ClaudeAdapter, LIVE_MODELS } from "./claudeAdapter";
+import { openStore } from "./db";
 import { hasApiKey, loadEnv } from "./env";
 import { MockAdapter } from "./mockAdapter";
 import { MOCK_SCRIPTS } from "./mockScripts";
@@ -29,9 +30,31 @@ const HOST = "127.0.0.1";
 // Default 4 agents on launch; MOCK_AGENTS=6 for soak testing (max = scripts available).
 const AGENT_COUNT = Math.min(Number(process.env.MOCK_AGENTS ?? 4), MOCK_SCRIPTS.length);
 const WORKSPACE_ROOT = path.resolve(process.cwd(), "..", "workspaces");
+// Event log + agent records live in SQLite (ARCADE_DB=":memory:" to disable).
+const DB_FILE = process.env.ARCADE_DB ?? path.resolve(process.cwd(), "..", "data", "arcade.db");
 
-const bus = new EventBus();
+const store = openStore(DB_FILE);
+const bus = new EventBus(store);
 const terminals = new TerminalRegistry((draft) => bus.publish(draft));
+
+// Rebuild server-side state from the persisted log: terminals come back
+// as they were; agents that were still running when the server last
+// stopped can't be resumed (their runtime is gone), so close them out.
+const restored = reduceAll(bus.snapshot());
+for (const id of restored.terminalOrder) {
+  const t = restored.terminals[id];
+  if (t) terminals.restore(t);
+}
+let orphans = 0;
+for (const id of restored.order) {
+  const a = restored.agents[id];
+  if (a && a.outcome === undefined) {
+    orphans += 1;
+    bus.publish({ agentId: id, type: "message", payload: { from: "agent", text: "server restarted, run ended" } });
+    bus.publish({ agentId: id, type: "agent.finished", payload: { outcome: "stopped" } });
+  }
+}
+const firstRun = restored.order.length === 0;
 
 const mock = new MockAdapter({
   autoResolveApprovalsMs: null,
@@ -192,9 +215,14 @@ wss.on("connection", (ws: WebSocket) => {
 });
 
 wss.on("listening", () => {
+  // Demo agents only on a fresh database (or when MOCK_AGENTS is set).
+  const seed = firstRun || process.env.MOCK_AGENTS !== undefined;
   console.log(
-    `[agent-arcade] mode=${mode} · live ${liveAvailable ? "available (API key found)" : "unavailable (no API key)"} · ws://${HOST}:${PORT} · spawning ${AGENT_COUNT} mock agents`,
+    `[agent-arcade] mode=${mode} · live ${liveAvailable ? "available (API key found)" : "unavailable (no API key)"} · ws://${HOST}:${PORT} · ` +
+      `${bus.snapshot().length} events loaded (${restored.order.length} agents${orphans ? `, ${orphans} closed out` : ""}) · ` +
+      (seed ? `spawning ${AGENT_COUNT} mock agents` : "no demo agents (use + New Agent)"),
   );
+  if (!seed) return;
   MOCK_SCRIPTS.slice(0, AGENT_COUNT).forEach((script, i) => {
     setTimeout(() => {
       terminals.ensure(script.spec.universe, script.terminals ?? []);
@@ -203,3 +231,10 @@ wss.on("listening", () => {
     }, 500 + i * 1500);
   });
 });
+
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  process.on(sig, () => {
+    store.close();
+    process.exit(0);
+  });
+}

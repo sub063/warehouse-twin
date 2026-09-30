@@ -15,8 +15,9 @@
  */
 
 import { useEffect, useRef } from "react";
-import type { AgentView, TerminalSpec } from "../../../shared/src";
-import { getState, selectAgent, selectTerminal } from "../store";
+import type { AgentView, ArcadeEvent, TerminalSpec, WorldState } from "../../../shared/src";
+import { ReplayPlayer } from "../../../shared/src";
+import { advanceReplay, getState, selectAgent, selectTerminal } from "../store";
 import { WorldSim } from "./sim";
 import type { AgentVisual, StationDef, Theme } from "./theme";
 
@@ -215,6 +216,11 @@ export function WorldCanvas({
     let seenFocusNonce = 0;
     let focusTarget: { x: number; y: number } | null = null;
 
+    // Replay: rebuild the run's world from its own events up to the cursor.
+    let player: ReplayPlayer | null = null;
+    let playerAgent = "";
+    let playerEvents: ArcadeEvent[] | null = null;
+
     let raf = 0;
     let last = performance.now();
     let frameNo = 0;
@@ -223,8 +229,29 @@ export function WorldCanvas({
       last = now;
       frameNo += 1;
       relayout();
-      const { world, selectedAgentId, selectedTerminalId, focus } = getState();
-      const sprites = sim.tick(world, dt, inUniverse);
+      advanceReplay(dt);
+      const ui = getState();
+      const { selectedAgentId, selectedTerminalId, focus, replay } = ui;
+      let world: WorldState = ui.world;
+      let visible = inUniverse;
+      let nowTs = Date.now();
+      if (replay) {
+        const live = ui.world.agents[replay.agentId];
+        if (live && (playerAgent !== replay.agentId || playerEvents !== live.timeline)) {
+          // (Re)build when the run changes or its timeline reference does.
+          playerAgent = replay.agentId;
+          playerEvents = live.timeline;
+          player = new ReplayPlayer(live.timeline);
+        }
+        if (player) world = player.seek(replay.cursorTs);
+        visible = (a: AgentView) => a.id === replay.agentId;
+        nowTs = replay.cursorTs;
+      } else if (player) {
+        player = null;
+        playerAgent = "";
+        playerEvents = null;
+      }
+      const sprites = sim.tick(world, dt, visible);
 
       if (smooth) {
         if (focus && focus.nonce !== seenFocusNonce) {
@@ -293,7 +320,7 @@ export function WorldCanvas({
         const a = world.agents[s.agentId];
         if (!a?.bubble) continue;
         const lastMsg = [...a.timeline].reverse().find((e) => e.type === "message" && e.payload.from === "agent");
-        if (!lastMsg || Date.now() - lastMsg.ts > 8000) continue;
+        if (!lastMsg || nowTs - lastMsg.ts > 8000) continue;
         const stagger = (world.order.indexOf(s.agentId) % 3) * 6;
         theme.drawBubble(dctx, s.x, s.y - theme.bubbleClearance - stagger, a.bubble);
       }

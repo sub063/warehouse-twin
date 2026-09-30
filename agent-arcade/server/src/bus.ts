@@ -1,17 +1,23 @@
 /**
- * The event bus: stamps envelopes on adapter drafts, keeps the in-memory
- * event log (SQLite persistence arrives in milestone 4), and fans events
- * out to subscribers (the WebSocket layer).
+ * The event bus: stamps envelopes on adapter drafts, keeps the event log
+ * (loaded from and appended to the store), and fans events out to
+ * subscribers (the WebSocket layer).
  */
 
 import { randomUUID } from "node:crypto";
 import type { ArcadeEvent, DraftEvent } from "../../shared/src";
 import { EVENT_SCHEMA_VERSION } from "../../shared/src";
+import type { EventStore } from "./db";
 
 export class EventBus {
-  private seq = 0;
-  private log: ArcadeEvent[] = [];
+  private seq: number;
+  private log: ArcadeEvent[];
   private listeners = new Set<(e: ArcadeEvent) => void>();
+
+  constructor(private store?: EventStore) {
+    this.log = store?.loadEvents() ?? [];
+    this.seq = (this.log.at(-1)?.seq ?? -1) + 1;
+  }
 
   publish(draft: DraftEvent): ArcadeEvent {
     const event = {
@@ -22,6 +28,7 @@ export class EventBus {
       ...draft,
     } as ArcadeEvent;
     this.log.push(event);
+    this.store?.append(event);
     for (const l of this.listeners) l(event);
     return event;
   }

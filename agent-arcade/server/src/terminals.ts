@@ -63,6 +63,11 @@ export class TerminalRegistry {
     return terminal;
   }
 
+  /** Re-register a terminal loaded from the persisted log (no event). */
+  restore(terminal: TerminalSpec): void {
+    this.terminals.set(terminal.id, terminal);
+  }
+
   remove(terminalId: string): void {
     const t = this.terminals.get(terminalId);
     if (!t) return;
