@@ -13,6 +13,9 @@ if not exist node_modules (
   echo Installing dependencies (first run only)...
   call npm.cmd install || (pause & exit /b 1)
 )
+REM Stop any Agent Arcade server/client still running from an earlier window.
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r ":8787 .*LISTENING"') do taskkill /f /pid %%p >nul 2>nul
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r ":5173 .*LISTENING"') do taskkill /f /pid %%p >nul 2>nul
 echo Starting Agent Arcade... keep this window open while you use it.
 start "" /b cmd /c "timeout /t 5 >nul && (start msedge --app=http://127.0.0.1:5173 || start http://127.0.0.1:5173)"
 call npm.cmd run dev

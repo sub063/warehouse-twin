@@ -259,6 +259,19 @@ function handleCommand(cmd: ClientCommand): void {
 }
 
 const wss = new WebSocketServer({ port: PORT, host: HOST });
+wss.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(
+      `[agent-arcade] port ${PORT} is already in use — an Agent Arcade server is probably still running from an earlier window.\n` +
+        `  Close that window, or stop it with:  Windows: for /f "tokens=5" %p in ('netstat -ano ^| findstr :${PORT}') do taskkill /f /pid %p\n` +
+        `                                       macOS/Linux: lsof -ti tcp:${PORT} | xargs kill\n` +
+        `  Or run on another port: PORT=8790 (the launcher does this cleanup for you).`,
+    );
+    store.close();
+    process.exit(1);
+  }
+  throw err;
+});
 
 wss.on("connection", (ws: WebSocket) => {
   const snapshot: ServerMessage = { kind: "snapshot", events: bus.snapshot() };
