@@ -4,24 +4,36 @@
  * - "integer" (pixel themes): render at base resolution offscreen, blit
  *   at the largest integer scale with nearest-neighbor — crisp pixels.
  * - "smooth" (vector themes): two stacked canvases. The bottom one
- *   holds the static scene and is rasterized only on resize; the top
- *   one is cleared each frame and gets just the ambient animation,
- *   agents, and bubbles. That keeps per-frame rasterization tiny, so
- *   the world stays at full frame rate even without GPU acceleration.
+ *   holds the static scene and is rasterized only on resize or when the
+ *   station layout changes; the top one is cleared each frame and gets
+ *   just the ambient animation, agents, and bubbles.
+ *
+ * Stations come from the active universe's terminals (plus the built-in
+ * Dock and Mailbox), laid out by the theme.
  */
 
 import { useEffect, useRef } from "react";
-import type { AgentView } from "../../../shared/src";
-import { getState, selectAgent } from "../store";
+import type { AgentView, TerminalSpec } from "../../../shared/src";
+import { getState, selectAgent, selectTerminal } from "../store";
 import { WorldSim } from "./sim";
-import type { AgentVisual, Theme } from "./theme";
+import type { AgentVisual, StationDef, Theme } from "./theme";
 
-export function WorldCanvas({ theme, universe }: { theme: Theme; universe: string | null }) {
+export function WorldCanvas({
+  theme,
+  universe,
+  terminals,
+}: {
+  theme: Theme;
+  universe: string | null;
+  terminals: TerminalSpec[];
+}) {
   const bgRef = useRef<HTMLCanvasElement | null>(null);
   const fgRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const universeRef = useRef<string | null>(universe);
   universeRef.current = universe;
+  const terminalsRef = useRef<TerminalSpec[]>(terminals);
+  terminalsRef.current = terminals;
 
   useEffect(() => {
     const bg = bgRef.current;
@@ -42,13 +54,36 @@ export function WorldCanvas({ theme, universe }: { theme: Theme; universe: strin
     const still = document.createElement("canvas");
     still.width = theme.width;
     still.height = theme.height;
-    if (!smooth) theme.drawWorldStatic(still.getContext("2d")!);
+    const sctx = still.getContext("2d")!;
+
+    let stations: StationDef[] = [];
+    let layoutKey = "";
 
     // View transform state (logical -> canvas element px).
     let scale = 1;
     let offX = 0;
     let offY = 0;
     const dpr = smooth ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+
+    const drawStatic = () => {
+      if (smooth) {
+        bgCtx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, dpr * offY);
+        theme.drawWorldStatic(bgCtx, stations);
+      } else {
+        sctx.setTransform(1, 0, 0, 1, 0, 0);
+        theme.drawWorldStatic(sctx, stations);
+      }
+    };
+
+    const relayout = () => {
+      const list = terminalsRef.current;
+      const key = list.map((t) => `${t.id}:${t.name}:${t.kind}`).join("|");
+      if (key === layoutKey) return;
+      layoutKey = key;
+      stations = theme.layoutStations(list);
+      sim.setStations(stations);
+      drawStatic();
+    };
 
     const applyScale = () => {
       const rect = wrap.getBoundingClientRect();
@@ -64,9 +99,6 @@ export function WorldCanvas({ theme, universe }: { theme: Theme; universe: strin
         scale = Math.min(cssW / theme.width, cssH / theme.height);
         offX = (cssW - theme.width * scale) / 2;
         offY = (cssH - theme.height * scale) / 2;
-        // Rasterize the static scene once per resize.
-        bgCtx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, dpr * offY);
-        theme.drawWorldStatic(bgCtx);
       } else {
         scale = Math.max(1, Math.floor(Math.min(rect.width / theme.width, rect.height / theme.height)));
         offX = 0;
@@ -78,7 +110,9 @@ export function WorldCanvas({ theme, universe }: { theme: Theme; universe: strin
         bg.style.display = "none";
         fgCtx.imageSmoothingEnabled = false;
       }
+      drawStatic();
     };
+    relayout();
     applyScale();
     const ro = new ResizeObserver(applyScale);
     ro.observe(wrap);
@@ -91,10 +125,10 @@ export function WorldCanvas({ theme, universe }: { theme: Theme; universe: strin
     const frame = (now: number) => {
       const dt = now - last;
       last = now;
-      const { world, selectedAgentId } = getState();
+      relayout();
+      const { world, selectedAgentId, selectedTerminalId } = getState();
       const sprites = sim.tick(world, dt, inUniverse);
 
-      // Pick the drawing context for this frame's content.
       const dctx = smooth ? fgCtx : bctx;
       if (smooth) {
         fgCtx.setTransform(1, 0, 0, 1, 0, 0);
@@ -103,9 +137,13 @@ export function WorldCanvas({ theme, universe }: { theme: Theme; universe: strin
       } else {
         bctx.drawImage(still, 0, 0);
       }
-      theme.drawWorldDynamic(dctx, now);
+      theme.drawWorldDynamic(dctx, stations, now);
 
-      // Sprites, back to front.
+      if (selectedTerminalId) {
+        const st = stations.find((s) => s.id === selectedTerminalId);
+        if (st) theme.drawStationSelection(dctx, st, now);
+      }
+
       for (const s of sprites) {
         const a = world.agents[s.agentId];
         if (!a) continue;
@@ -120,16 +158,15 @@ export function WorldCanvas({ theme, universe }: { theme: Theme; universe: strin
         theme.drawAgent(dctx, s.x, s.y, visual);
       }
 
-      // Unknown-tool label at the workshop.
+      // Tool-name label while working at a terminal that maps by category
+      // only (no explicit terminal), so it's clear what's happening there.
       for (const s of sprites) {
         const a = world.agents[s.agentId];
-        if (a?.state === "using_tool" && a.currentTool?.category === "unknown" && !s.walking) {
+        if (a?.state === "using_tool" && a.currentTool && !a.currentTool.terminalId && !s.walking) {
           theme.drawLabel(dctx, s.x, s.y + 4, a.currentTool.tool);
         }
       }
 
-      // Speech bubbles last so they sit on top; stagger height a little
-      // per agent so neighbors' bubbles don't fully overlap.
       for (const s of sprites) {
         const a = world.agents[s.agentId];
         if (!a?.bubble) continue;
@@ -139,9 +176,7 @@ export function WorldCanvas({ theme, universe }: { theme: Theme; universe: strin
         theme.drawBubble(dctx, s.x, s.y - theme.bubbleClearance - stagger, a.bubble);
       }
 
-      if (!smooth) {
-        fgCtx.drawImage(base, 0, 0, fg.width, fg.height);
-      }
+      if (!smooth) fgCtx.drawImage(base, 0, 0, fg.width, fg.height);
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
@@ -150,7 +185,13 @@ export function WorldCanvas({ theme, universe }: { theme: Theme; universe: strin
       const rect = fg.getBoundingClientRect();
       const x = (ev.clientX - rect.left - offX) / scale;
       const y = (ev.clientY - rect.top - offY) / scale;
-      selectAgent(sim.hitTest(x, y));
+      const hit = sim.hitTest(x, y);
+      if (hit.agentId) selectAgent(hit.agentId);
+      else if (hit.stationId) selectTerminal(hit.stationId);
+      else {
+        selectAgent(undefined);
+        selectTerminal(undefined);
+      }
     };
     fg.addEventListener("click", onClick);
 

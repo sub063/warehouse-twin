@@ -3,7 +3,27 @@
  * replay). Kept here so they can be unit-tested with the reducer.
  */
 
-import type { AgentView } from "./reducer";
+import type { TerminalSpec } from "./events";
+import type { AgentView, WorldState } from "./reducer";
+
+/** Terminals in a universe (or every universe when null), in creation order. */
+export function terminalsIn(world: WorldState, universe: string | null): TerminalSpec[] {
+  const out: TerminalSpec[] = [];
+  for (const id of world.terminalOrder) {
+    const t = world.terminals[id];
+    if (t && (universe === null || t.universe === universe)) out.push(t);
+  }
+  return out;
+}
+
+/** Union of tools the universe's terminals provide (what agents may be allowed). */
+export function toolsAvailableIn(world: WorldState, universe: string | null): string[] {
+  const tools: string[] = [];
+  for (const t of terminalsIn(world, universe)) {
+    for (const tool of t.tools) if (!tools.includes(tool)) tools.push(tool);
+  }
+  return tools;
+}
 
 /**
  * Files an agent has changed, derived from successful file-category

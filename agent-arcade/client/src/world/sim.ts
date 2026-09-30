@@ -4,10 +4,8 @@
  * nothing here feeds back into events or controls.
  */
 
-import type { AgentView, WorldState } from "../../../shared/src";
-import type { StationId, Theme } from "./theme";
-
-// Walk speed comes from the theme (worlds differ in logical size).
+import type { AgentView, ToolCategory, WorldState } from "../../../shared/src";
+import type { StationDef, Theme } from "./theme";
 
 export interface Sprite {
   agentId: string;
@@ -18,30 +16,74 @@ export interface Sprite {
   walking: boolean;
   facing: 1 | -1;
   /** Station the agent is heading to / standing at. */
-  station: StationId;
+  stationId: string;
 }
+
+const CATEGORY_KIND: Record<ToolCategory, string> = {
+  shell: "shell",
+  search: "research",
+  files: "files",
+  human: "mailbox",
+  unknown: "files",
+};
 
 export class WorldSim {
   private sprites = new Map<string, Sprite>();
+  private stations: StationDef[] = [];
+  private byId = new Map<string, StationDef>();
 
   constructor(private theme: Theme) {}
 
-  /** Stable slot index so agents don't all stack on one tile. */
-  private slotFor(stationId: StationId, agentIndex: number): { x: number; y: number } {
-    const st = this.theme.station(stationId);
-    const slot = st.slots[agentIndex % st.slots.length] ?? st.slots[0]!;
-    return slot;
+  setStations(stations: StationDef[]): void {
+    this.stations = stations;
+    this.byId = new Map(stations.map((s) => [s.id, s]));
   }
 
-  private targetStation(a: AgentView): StationId | null {
+  private station(id: string): StationDef | undefined {
+    return this.byId.get(id);
+  }
+
+  /** Stable slot index so agents don't all stack on one tile. */
+  private slotFor(st: StationDef, agentIndex: number): { x: number; y: number } {
+    return st.slots[agentIndex % st.slots.length] ?? st.slots[0] ?? { x: st.x, y: st.y };
+  }
+
+  /**
+   * Where a tool call happens: the terminal it was routed to; if that
+   * terminal isn't on this map (e.g. the merged "All" overview shows one
+   * building per terminal name), one with the same name and kind; else
+   * one of the tool's kind; else the first terminal; else the dock.
+   */
+  private stationForTool(a: AgentView, world: WorldState): StationDef | undefined {
+    const run = a.currentTool;
+    if (run?.terminalId) {
+      const direct = this.byId.get(run.terminalId);
+      if (direct) return direct;
+      const spec = world.terminals[run.terminalId];
+      if (spec) {
+        const twin = this.stations.find((s) => s.terminal && s.name === spec.name && s.kind === spec.kind);
+        if (twin) return twin;
+        const sameKind = this.stations.find((s) => s.terminal && s.kind === spec.kind);
+        if (sameKind) return sameKind;
+      }
+    }
+    const kind = CATEGORY_KIND[run?.category ?? "unknown"];
+    return (
+      this.stations.find((s) => s.kind === kind && s.terminal) ??
+      this.stations.find((s) => s.terminal) ??
+      this.station("dock")
+    );
+  }
+
+  private targetStation(a: AgentView, world: WorldState): StationDef | undefined | null {
     switch (a.state) {
       case "using_tool":
-        return this.theme.stationFor(a.currentTool?.category ?? "unknown");
+        return this.stationForTool(a, world);
       case "awaiting_approval":
-        return "mailbox";
+        return this.station("mailbox");
       case "idle":
       case "done":
-        return "dock";
+        return this.station("dock");
       case "thinking":
       case "paused":
       case "error":
@@ -49,20 +91,16 @@ export class WorldSim {
     }
   }
 
-  /**
-   * Advance sprites. `visible` filters which agents are in the world
-   * right now (e.g. the active universe); sprites of filtered-out
-   * agents are removed and re-enter at the dock when they return.
-   */
   tick(world: WorldState, dtMs: number, visible?: (a: AgentView) => boolean): Sprite[] {
     const dt = Math.min(dtMs, 100) / 1000;
+    const dock = this.station("dock");
 
     world.order.forEach((id, index) => {
       const a = world.agents[id];
       if (!a || (visible && !visible(a))) return;
       let s = this.sprites.get(id);
       if (!s) {
-        const spawn = this.slotFor("dock", index);
+        const spawn = dock ? this.slotFor(dock, index) : { x: this.theme.width / 2, y: this.theme.height / 2 };
         s = {
           agentId: id,
           x: spawn.x,
@@ -71,17 +109,23 @@ export class WorldSim {
           targetY: spawn.y,
           walking: false,
           facing: 1,
-          station: "dock",
+          stationId: "dock",
         };
         this.sprites.set(id, s);
       }
 
-      const station = this.targetStation(a);
-      if (station !== null) {
+      const station = this.targetStation(a, world);
+      if (station) {
         const slot = this.slotFor(station, index);
         s.targetX = slot.x;
         s.targetY = slot.y;
-        s.station = station;
+        s.stationId = station.id;
+      } else if (station === undefined && dock) {
+        // Target vanished (terminal removed): head back to the dock.
+        const slot = this.slotFor(dock, index);
+        s.targetX = slot.x;
+        s.targetY = slot.y;
+        s.stationId = "dock";
       }
 
       // L-shaped walk: horizontal leg first, then vertical.
@@ -114,15 +158,18 @@ export class WorldSim {
     return [...this.sprites.values()].sort((a, b) => a.y - b.y);
   }
 
-  /** Hit test for click-to-select, in base-resolution px. */
-  hitTest(x: number, y: number): string | undefined {
+  /** Hit test for click-to-select, in logical px. Agents win over stations. */
+  hitTest(x: number, y: number): { agentId?: string; stationId?: string } {
     let best: { id: string; d: number } | undefined;
     for (const s of this.sprites.values()) {
-      const cx = s.x;
-      const cy = s.y - 7;
-      const d = Math.hypot(x - cx, y - cy);
+      const d = Math.hypot(x - s.x, y - (s.y - 7));
       if (d <= 12 && (!best || d < best.d)) best = { id: s.agentId, d };
     }
-    return best?.id;
+    if (best) return { agentId: best.id };
+    for (const st of this.stations) {
+      const h = st.hit;
+      if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) return { stationId: st.id };
+    }
+    return {};
   }
 }

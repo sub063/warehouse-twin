@@ -2,12 +2,12 @@
  * The "Isle" theme: a smooth, mobile-game style island — soft gradients,
  * rounded 3/4-view buildings, cute round agent bots. Everything is
  * vector-drawn in code (no image assets), so it stays sharp at any
- * scale. Same Theme interface as the pixel Handheld theme; the event
- * and control code never changes.
+ * scale. Terminals are laid out on a ring around the central plaza,
+ * with the Dock (pier) fixed on the south shore.
  */
 
-import type { ToolCategory } from "../../../../shared/src";
-import type { AgentVisual, StationDef, StationId, Theme } from "../theme";
+import type { TerminalKind, TerminalSpec } from "../../../../shared/src";
+import type { AgentVisual, StationDef, Theme } from "../theme";
 
 const W = 480;
 const H = 360;
@@ -20,13 +20,11 @@ const COLORS = {
   waterShallow: "#46A0E8",
   sand: "#EFD9A7",
   sandEdge: "#E3C486",
-  grass: "#7ECC5B",
   grassLight: "#93DA70",
   grassDark: "#63B944",
   path: "#EAD9AE",
   pathEdge: "#D9C089",
   ink: "#233042",
-  white: "#FFFFFF",
   badgeOrange: "#FF9F0A",
   badgeRed: "#FF453A",
   badgeGreen: "#30C758",
@@ -66,192 +64,409 @@ function vGrad(ctx: CanvasRenderingContext2D, y0: number, y1: number, c0: string
 }
 
 function islandPath(ctx: CanvasRenderingContext2D, grow = 0): void {
-  // Organic rounded island blob, centered on (240, 185).
-  const cx = 240;
-  const cy = 185;
-  const rx = 168 + grow;
-  const ry = 126 + grow;
   ctx.beginPath();
-  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  ctx.ellipse(240, 185, 168 + grow, 126 + grow, 0, 0, Math.PI * 2);
+}
+
+/** Lighten/darken a hex color by pct (-100..100). */
+function shade(hex: string, pct: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (c: number) => Math.max(0, Math.min(255, Math.round(c + (pct / 100) * 255)));
+  return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+
+// ------------------------------------------------------------- layout
+
+const PLAZA = { x: 240, y: 192 };
+const RING = { cx: 240, cy: 200, rx: 152, ry: 88 };
+
+/** Buildings shrink a little on crowded rings so they don't overlap. */
+function crowdScale(ringCount: number): number {
+  return Math.min(1, 6.5 / Math.max(1, ringCount));
+}
+
+const DOCK: StationDef = {
+  id: "dock",
+  name: "Dock",
+  kind: "dock",
+  x: 240,
+  y: 352,
+  slots: [
+    { x: 222, y: 322 },
+    { x: 246, y: 322 },
+    { x: 258, y: 340 },
+    { x: 234, y: 344 },
+    { x: 212, y: 338 },
+  ],
+  labelAnchor: { x: 240, y: 354 },
+  hit: { x: 206, y: 306, w: 68, h: 46 },
+};
+
+function ringStation(id: string, name: string, kind: StationDef["kind"], i: number, n: number, terminal?: TerminalSpec): StationDef {
+  // Sweep the ring clockwise from lower-left, skipping the south sector
+  // where the dock sits. Screen angles: 0 = right, 90 = down.
+  const start = 130;
+  const sweep = 280;
+  const deg = start + (sweep * (i + 0.5)) / n;
+  const rad = (deg * Math.PI) / 180;
+  const x = Math.round(RING.cx + RING.rx * Math.cos(rad));
+  const y = Math.round(RING.cy + RING.ry * Math.sin(rad));
+  const s = crowdScale(n);
+  const slotY = Math.round(y + 14 * s + 2);
+  // Stagger every other label on crowded rings so neighbors don't collide.
+  const stagger = n > 6 && i % 2 === 1 ? 9 : 0;
+  return {
+    id,
+    name,
+    kind,
+    x,
+    y,
+    slots: [
+      { x: Math.round(x - 24 * s), y: slotY },
+      { x, y: slotY },
+      { x: Math.round(x + 24 * s), y: slotY },
+    ],
+    labelAnchor: { x, y: slotY + 8 + stagger },
+    hit: { x: x - 34 * s, y: y - 64 * s, w: 68 * s, h: 70 * s },
+    terminal,
+  };
+}
+
+/** Draw a station's building scaled around its ground anchor. */
+function drawScaledBuilding(ctx: CanvasRenderingContext2D, st: StationDef, s: number): void {
+  ctx.save();
+  ctx.translate(st.x, st.y);
+  ctx.scale(s, s);
+  ctx.translate(-st.x, -st.y);
+  drawBuilding(ctx, st);
+  ctx.restore();
+}
+
+function layoutStations(terminals: TerminalSpec[]): StationDef[] {
+  const ring: Array<{ id: string; name: string; kind: StationDef["kind"]; terminal?: TerminalSpec }> = [
+    ...terminals.map((t) => ({ id: t.id, name: t.name, kind: t.kind, terminal: t })),
+    { id: "mailbox", name: "Mailbox", kind: "mailbox" },
+  ];
+  const n = ring.length;
+  return [...ring.map((r, i) => ringStation(r.id, r.name, r.kind, i, n, r.terminal)), DOCK];
 }
 
 // ---------------------------------------------------------- buildings
 
-interface BuildingOpts {
-  x: number; // center x
-  y: number; // ground line (front bottom)
-  w: number;
-  faceH: number;
+interface KindStyle {
   wall0: string;
   wall1: string;
+  roof0: string;
+  roof1: string;
+  roof: "gable" | "round" | "flat";
+  w: number;
+  faceH: number;
 }
 
-/** Front face + ground shadow shared by all buildings; returns face rect. */
-function buildingBase(ctx: CanvasRenderingContext2D, o: BuildingOpts): { fx: number; fy: number } {
-  const fx = o.x - o.w / 2;
-  const fy = o.y - o.faceH;
-  softShadow(ctx, o.x, o.y + 3, o.w * 0.62, 8);
-  ctx.fillStyle = vGrad(ctx, fy, o.y, o.wall0, o.wall1);
-  rr(ctx, fx, fy, o.w, o.faceH, 7);
-  ctx.fill();
-  return { fx, fy };
-}
+const KIND_STYLE: Record<StationDef["kind"], KindStyle> = {
+  shell: { wall0: "#3D4A63", wall1: "#2C3750", roof0: "#5A6B8C", roof1: "#46536F", roof: "gable", w: 62, faceH: 34 },
+  research: { wall0: "#F7EBD3", wall1: "#E8D6B4", roof0: "#C96F4A", roof1: "#B25A38", roof: "gable", w: 64, faceH: 34 },
+  files: { wall0: "#B98A5C", wall1: "#9E6F44", roof0: "#8A6A4C", roof1: "#74563B", roof: "gable", w: 62, faceH: 32 },
+  image: { wall0: "#FBFBFD", wall1: "#E9EAF2", roof0: "#B77CF6", roof1: "#9558E0", roof: "round", w: 58, faceH: 32 },
+  model3d: { wall0: "#EEF2F5", wall1: "#D6DEE6", roof0: "#3FB9B0", roof1: "#2C948C", roof: "gable", w: 60, faceH: 34 },
+  store: { wall0: "#E6F7EA", wall1: "#CDEBD4", roof0: "#3AAE5C", roof1: "#2D8E49", roof: "flat", w: 62, faceH: 32 },
+  marketing: { wall0: "#FFEAF0", wall1: "#F8D2DE", roof0: "#F0508A", roof1: "#CF3A70", roof: "round", w: 58, faceH: 32 },
+  data: { wall0: "#DCE6F2", wall1: "#C3D2E4", roof0: "#5474A6", roof1: "#3F5A87", roof: "flat", w: 60, faceH: 34 },
+  chat: { wall0: "#FFF4D6", wall1: "#F6E4B0", roof0: "#F5A623", roof1: "#D98A12", roof: "round", w: 56, faceH: 30 },
+  custom: { wall0: "#ECE8F8", wall1: "#D8D0F0", roof0: "#8A8FA8", roof1: "#6F7590", roof: "gable", w: 58, faceH: 32 },
+  mailbox: { wall0: "#FDFDFB", wall1: "#E8EAEE", roof0: "#4E9BFF", roof1: "#3578E5", roof: "round", w: 50, faceH: 30 },
+  dock: { wall0: "#C89B66", wall1: "#A87C4C", roof0: "", roof1: "", roof: "flat", w: 68, faceH: 46 },
+};
 
-function gableRoof(ctx: CanvasRenderingContext2D, x: number, roofY: number, w: number, depth: number, c0: string, c1: string): void {
-  // Simple 3/4 gable: a trapezoid top + overhanging eave.
-  ctx.fillStyle = vGrad(ctx, roofY - depth, roofY, c0, c1);
-  ctx.beginPath();
-  ctx.moveTo(x - w / 2 - 6, roofY);
-  ctx.lineTo(x - w / 2 + 10, roofY - depth);
-  ctx.lineTo(x + w / 2 - 10, roofY - depth);
-  ctx.lineTo(x + w / 2 + 6, roofY);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = "rgba(0,0,0,0.12)";
-  rr(ctx, x - w / 2 - 6, roofY - 2, w + 12, 4, 2);
-  ctx.fill();
-}
-
-function drawTerminalStatic(ctx: CanvasRenderingContext2D, x: number, y: number): void {
-  const w = 62;
-  const { fy } = buildingBase(ctx, { x, y, w, faceH: 34, wall0: "#3D4A63", wall1: "#2C3750" });
-  gableRoof(ctx, x, fy, w, 14, "#5A6B8C", "#46536F");
-  // Antenna mast (the blinking light is dynamic).
-  ctx.strokeStyle = "#8A97B0";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(x + 18, fy - 13);
-  ctx.lineTo(x + 18, fy - 30);
-  ctx.stroke();
-  // Glowing terminal screen.
-  rr(ctx, x - 22, fy + 7, 32, 20, 4);
-  ctx.fillStyle = "#101826";
-  ctx.fill();
-  rr(ctx, x - 19, fy + 10, 26, 14, 2.5);
-  ctx.fillStyle = "#28E0A5";
-  ctx.globalAlpha = 0.9;
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  // Door.
-  rr(ctx, x + 12, y - 13, 10, 13, 3);
-  ctx.fillStyle = "#1E2839";
-  ctx.fill();
-}
-
-function drawTerminalDynamic(ctx: CanvasRenderingContext2D, x: number, y: number, t: number): void {
-  const fy = y - 34;
-  // Blinking antenna light.
-  ctx.fillStyle = Math.floor(t / 600) % 2 ? "#FF453A" : "#7A2E28";
-  ctx.beginPath();
-  ctx.arc(x + 18, fy - 32, 2.6, 0, Math.PI * 2);
-  ctx.fill();
-  // Flickering text lines on the screen.
-  ctx.fillStyle = "#0F2A20";
-  const lines = [12, 10, 15, 8];
-  lines.forEach((lw, i) => {
-    ctx.globalAlpha = Math.floor(t / 400 + i) % 4 !== i % 4 ? 1 : 0.35;
-    ctx.fillRect(x - 16, fy + 12.5 + i * 3, lw, 1.6);
-  });
-  ctx.globalAlpha = 1;
-}
-
-function drawLibrary(ctx: CanvasRenderingContext2D, x: number, y: number): void {
-  const w = 64;
-  const { fy } = buildingBase(ctx, { x, y, w, faceH: 34, wall0: "#F7EBD3", wall1: "#E8D6B4" });
-  gableRoof(ctx, x, fy, w, 16, "#C96F4A", "#B25A38");
-  // Arched window with book spines.
-  rr(ctx, x - 24, fy + 7, 26, 20, 5);
-  ctx.fillStyle = "#6B4B33";
-  ctx.fill();
-  const spines = ["#E2574C", "#4A90D9", "#57B86A", "#E8B84B", "#9B6BD3"];
-  spines.forEach((c, i) => {
-    ctx.fillStyle = c;
-    rr(ctx, x - 21 + i * 4.2, fy + 11 + (i % 2), 3.2, 13 - (i % 2) * 2, 1);
+function drawRoof(ctx: CanvasRenderingContext2D, x: number, fy: number, s: KindStyle): void {
+  if (s.roof === "gable") {
+    const depth = 15;
+    ctx.fillStyle = vGrad(ctx, fy - depth, fy, s.roof0, s.roof1);
+    ctx.beginPath();
+    ctx.moveTo(x - s.w / 2 - 6, fy);
+    ctx.lineTo(x - s.w / 2 + 10, fy - depth);
+    ctx.lineTo(x + s.w / 2 - 10, fy - depth);
+    ctx.lineTo(x + s.w / 2 + 6, fy);
+    ctx.closePath();
     ctx.fill();
-  });
-  // Door.
-  rr(ctx, x + 10, y - 15, 12, 15, 4);
-  ctx.fillStyle = "#7C5940";
-  ctx.fill();
-  ctx.fillStyle = "#E8D6B4";
-  ctx.beginPath();
-  ctx.arc(x + 19, y - 8, 1.2, 0, Math.PI * 2);
+  } else if (s.roof === "round") {
+    ctx.fillStyle = vGrad(ctx, fy - 16, fy, s.roof0, s.roof1);
+    ctx.beginPath();
+    ctx.moveTo(x - s.w / 2 - 5, fy);
+    ctx.quadraticCurveTo(x, fy - 22, x + s.w / 2 + 5, fy);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    ctx.fillStyle = vGrad(ctx, fy - 9, fy, s.roof0, s.roof1);
+    rr(ctx, x - s.w / 2 - 5, fy - 9, s.w + 10, 10, 3);
+    ctx.fill();
+  }
+  ctx.fillStyle = "rgba(0,0,0,0.12)";
+  rr(ctx, x - s.w / 2 - 6, fy - 2, s.w + 12, 4, 2);
   ctx.fill();
 }
 
-function drawWorkshop(ctx: CanvasRenderingContext2D, x: number, y: number): void {
-  const w = 62;
-  const { fy } = buildingBase(ctx, { x, y, w, faceH: 32, wall0: "#B98A5C", wall1: "#9E6F44" });
-  gableRoof(ctx, x, fy, w, 14, "#8A6A4C", "#74563B");
-  // Striped awning.
-  const aw = 34;
-  ctx.fillStyle = "#F0F0EE";
-  ctx.beginPath();
-  ctx.moveTo(x - 26, fy + 8);
-  ctx.lineTo(x - 26 + aw, fy + 8);
-  ctx.lineTo(x - 28 + aw, fy + 16);
-  ctx.lineTo(x - 28, fy + 16);
-  ctx.closePath();
+/** Front face + ground shadow + roof; returns the face's top y. */
+function buildingShell(ctx: CanvasRenderingContext2D, x: number, y: number, s: KindStyle): number {
+  const fx = x - s.w / 2;
+  const fy = y - s.faceH;
+  softShadow(ctx, x, y + 3, s.w * 0.62, 8);
+  ctx.fillStyle = vGrad(ctx, fy, y, s.wall0, s.wall1);
+  rr(ctx, fx, fy, s.w, s.faceH, 7);
   ctx.fill();
-  ctx.save();
-  ctx.clip();
-  ctx.fillStyle = "#FF8A3D";
-  for (let i = 0; i < 5; i += 2) ctx.fillRect(x - 27 + i * 7, fy + 6, 7, 12);
-  ctx.restore();
-  // Workbench under awning.
-  rr(ctx, x - 24, fy + 18, 30, 9, 2);
-  ctx.fillStyle = "#6E4F35";
-  ctx.fill();
-  // Hammer sign.
-  ctx.save();
-  ctx.translate(x + 16, fy + 12);
-  ctx.rotate(-0.5);
-  ctx.fillStyle = "#5C4530";
-  rr(ctx, -1.5, -2, 3, 14, 1.5);
-  ctx.fill();
-  ctx.fillStyle = "#98A2AE";
-  rr(ctx, -6, -6, 12, 6, 2);
-  ctx.fill();
-  ctx.restore();
+  drawRoof(ctx, x, fy, s);
+  return fy;
 }
 
-function drawMailbox(ctx: CanvasRenderingContext2D, x: number, y: number): void {
-  const w = 50;
-  const { fy } = buildingBase(ctx, { x, y, w, faceH: 30, wall0: "#FDFDFB", wall1: "#E8EAEE" });
-  // Rounded blue roof.
-  ctx.fillStyle = vGrad(ctx, fy - 14, fy, "#4E9BFF", "#3578E5");
-  ctx.beginPath();
-  ctx.moveTo(x - w / 2 - 5, fy);
-  ctx.quadraticCurveTo(x, fy - 20, x + w / 2 + 5, fy);
-  ctx.closePath();
+function door(ctx: CanvasRenderingContext2D, x: number, y: number, color: string): void {
+  rr(ctx, x - 5, y - 14, 10, 14, 3.5);
+  ctx.fillStyle = color;
   ctx.fill();
-  // Envelope sign.
-  rr(ctx, x - 12, fy + 7, 24, 16, 3);
+}
+
+/** Signboard on the front face, then the kind's icon inside it. */
+function sign(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, bg: string): void {
+  rr(ctx, x - w / 2, y - h / 2, w, h, 4);
+  ctx.fillStyle = bg;
+  ctx.fill();
+}
+
+const ICONS: Record<TerminalKind, (ctx: CanvasRenderingContext2D, x: number, y: number) => void> = {
+  shell(ctx, x, y) {
+    sign(ctx, x, y, 32, 20, "#101826");
+    rr(ctx, x - 13, y - 7, 26, 14, 2.5);
+    ctx.fillStyle = "#28E0A5";
+    ctx.fill();
+  },
+  research(ctx, x, y) {
+    sign(ctx, x, y, 28, 20, "#6B4B33");
+    const spines = ["#E2574C", "#4A90D9", "#57B86A", "#E8B84B", "#9B6BD3"];
+    spines.forEach((c, i) => {
+      ctx.fillStyle = c;
+      rr(ctx, x - 11 + i * 4.4, y - 6 + (i % 2), 3.2, 12 - (i % 2) * 2, 1);
+      ctx.fill();
+    });
+  },
+  files(ctx, x, y) {
+    // Striped awning + hammer.
+    ctx.fillStyle = "#F0F0EE";
+    ctx.beginPath();
+    ctx.moveTo(x - 17, y - 8);
+    ctx.lineTo(x + 17, y - 8);
+    ctx.lineTo(x + 15, y);
+    ctx.lineTo(x - 15, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = "#FF8A3D";
+    for (let i = 0; i < 5; i += 2) ctx.fillRect(x - 17 + i * 7, y - 10, 7, 12);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(x, y + 7);
+    ctx.rotate(-0.55);
+    ctx.fillStyle = "#5C4530";
+    rr(ctx, -1.4, -3, 2.8, 12, 1.4);
+    ctx.fill();
+    ctx.fillStyle = "#98A2AE";
+    rr(ctx, -6, -7, 12, 5.5, 2);
+    ctx.fill();
+    ctx.restore();
+  },
+  image(ctx, x, y) {
+    sign(ctx, x, y, 28, 20, "#FFFFFF");
+    ctx.strokeStyle = "#9558E0";
+    ctx.lineWidth = 1.6;
+    rr(ctx, x - 14, y - 10, 28, 20, 4);
+    ctx.stroke();
+    // Mountains + sun.
+    ctx.fillStyle = "#B77CF6";
+    ctx.beginPath();
+    ctx.moveTo(x - 11, y + 7);
+    ctx.lineTo(x - 4, y - 3);
+    ctx.lineTo(x + 1, y + 3);
+    ctx.lineTo(x + 5, y - 1);
+    ctx.lineTo(x + 11, y + 7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#F5A623";
+    ctx.beginPath();
+    ctx.arc(x + 7, y - 5, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+  },
+  model3d(ctx, x, y) {
+    sign(ctx, x, y, 26, 22, "#FFFFFF");
+    // Isometric cube.
+    const s = 7;
+    ctx.fillStyle = "#3FB9B0";
+    ctx.beginPath();
+    ctx.moveTo(x, y - s * 1.2);
+    ctx.lineTo(x + s, y - s * 0.6);
+    ctx.lineTo(x, y);
+    ctx.lineTo(x - s, y - s * 0.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#2C948C";
+    ctx.beginPath();
+    ctx.moveTo(x - s, y - s * 0.6);
+    ctx.lineTo(x, y);
+    ctx.lineTo(x, y + s * 1.1);
+    ctx.lineTo(x - s, y + s * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#1F736D";
+    ctx.beginPath();
+    ctx.moveTo(x + s, y - s * 0.6);
+    ctx.lineTo(x, y);
+    ctx.lineTo(x, y + s * 1.1);
+    ctx.lineTo(x + s, y + s * 0.5);
+    ctx.closePath();
+    ctx.fill();
+  },
+  store(ctx, x, y) {
+    // Green/white awning + price tag.
+    ctx.fillStyle = "#F0F0EE";
+    ctx.beginPath();
+    ctx.moveTo(x - 18, y - 9);
+    ctx.lineTo(x + 18, y - 9);
+    ctx.lineTo(x + 16, y - 1);
+    ctx.lineTo(x - 16, y - 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = "#3AAE5C";
+    for (let i = 0; i < 5; i += 2) ctx.fillRect(x - 18 + i * 7.2, y - 11, 7.2, 12);
+    ctx.restore();
+    ctx.save();
+    ctx.translate(x, y + 7);
+    ctx.rotate(-0.4);
+    ctx.fillStyle = "#F5A623";
+    ctx.beginPath();
+    ctx.moveTo(-8, -4);
+    ctx.lineTo(4, -4);
+    ctx.lineTo(9, 0);
+    ctx.lineTo(4, 4);
+    ctx.lineTo(-8, 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#FFFFFF";
+    ctx.beginPath();
+    ctx.arc(-4.5, 0, 1.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  },
+  marketing(ctx, x, y) {
+    sign(ctx, x, y, 28, 20, "#FFFFFF");
+    // Megaphone.
+    ctx.fillStyle = "#F0508A";
+    ctx.beginPath();
+    ctx.moveTo(x - 10, y - 3);
+    ctx.lineTo(x - 2, y - 3);
+    ctx.lineTo(x + 8, y - 8);
+    ctx.lineTo(x + 8, y + 8);
+    ctx.lineTo(x - 2, y + 3);
+    ctx.lineTo(x - 10, y + 3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#F0508A";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(x + 9, y, 4.5, -0.9, 0.9);
+    ctx.stroke();
+  },
+  data(ctx, x, y) {
+    sign(ctx, x, y, 28, 20, "#FFFFFF");
+    const bars = [5, 11, 8, 14];
+    bars.forEach((h, i) => {
+      ctx.fillStyle = i % 2 ? "#5474A6" : "#8FB3E8";
+      rr(ctx, x - 11 + i * 6, y + 7 - h, 4.5, h, 1);
+      ctx.fill();
+    });
+  },
+  chat(ctx, x, y) {
+    ctx.fillStyle = "#FFFFFF";
+    rr(ctx, x - 13, y - 9, 26, 15, 6);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y + 5);
+    ctx.lineTo(x - 8, y + 10);
+    ctx.lineTo(x - 1, y + 5.5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#F5A623";
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.arc(x - 6 + i * 6, y - 1.5, 1.7, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  },
+  custom(ctx, x, y) {
+    sign(ctx, x, y, 26, 20, "#FFFFFF");
+    // Star.
+    ctx.fillStyle = "#8A8FA8";
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 ? 3.5 : 8;
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      const px = x + Math.cos(a) * r;
+      const py = y + Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+  },
+};
+
+function drawMailboxIcon(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  rr(ctx, x - 12, y - 8, 24, 16, 3);
   ctx.fillStyle = "#FFFFFF";
   ctx.fill();
   ctx.strokeStyle = "#3578E5";
   ctx.lineWidth = 1.6;
-  rr(ctx, x - 12, fy + 7, 24, 16, 3);
+  rr(ctx, x - 12, y - 8, 24, 16, 3);
   ctx.stroke();
   ctx.beginPath();
-  ctx.moveTo(x - 12, fy + 8.5);
-  ctx.lineTo(x, fy + 17);
-  ctx.lineTo(x + 12, fy + 8.5);
+  ctx.moveTo(x - 12, y - 6.5);
+  ctx.lineTo(x, y + 2);
+  ctx.lineTo(x + 12, y - 6.5);
   ctx.stroke();
-  // Slot post.
-  ctx.fillStyle = "#3578E5";
-  rr(ctx, x - 3, y - 7, 6, 7, 2);
-  ctx.fill();
+}
+
+function drawBuilding(ctx: CanvasRenderingContext2D, st: StationDef): void {
+  const s = KIND_STYLE[st.kind];
+  const fy = buildingShell(ctx, st.x, st.y, s);
+  const iconY = fy + s.faceH * 0.5 - 1;
+  if (st.kind === "mailbox") {
+    drawMailboxIcon(ctx, st.x, iconY);
+    ctx.fillStyle = "#3578E5";
+    rr(ctx, st.x - 3, st.y - 7, 6, 7, 2);
+    ctx.fill();
+    return;
+  }
+  if (st.kind === "dock") return;
+  const icon = ICONS[st.kind];
+  const iconX = st.kind === "files" || st.kind === "store" ? st.x - 9 : st.x - 8;
+  icon(ctx, iconX, iconY);
+  door(ctx, st.x + s.w / 2 - 12, st.y, shade(s.wall1, -22));
+  if (st.kind === "shell") {
+    // Antenna mast (its light blinks in the dynamic pass).
+    ctx.strokeStyle = "#8A97B0";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(st.x + 18, fy - 13);
+    ctx.lineTo(st.x + 18, fy - 30);
+    ctx.stroke();
+  }
 }
 
 function drawDockStatic(ctx: CanvasRenderingContext2D): void {
-  // Wooden pier reaching from the south shore into the water.
   const px = 240;
   softShadow(ctx, px, 352, 40, 7, 0.12);
   ctx.fillStyle = vGrad(ctx, 306, 354, "#C89B66", "#A87C4C");
   rr(ctx, px - 34, 306, 68, 46, 6);
   ctx.fill();
-  // Plank seams.
   ctx.strokeStyle = "rgba(90, 60, 30, 0.35)";
   ctx.lineWidth = 1.2;
   for (let i = 1; i < 5; i++) {
@@ -260,7 +475,6 @@ function drawDockStatic(ctx: CanvasRenderingContext2D): void {
     ctx.lineTo(px + 32, 306 + i * 9);
     ctx.stroke();
   }
-  // Posts.
   for (const [dx, dy] of [[-30, 310], [30, 310], [-30, 344], [30, 344]] as const) {
     ctx.fillStyle = "#7C5A38";
     ctx.beginPath();
@@ -274,7 +488,6 @@ function drawDockStatic(ctx: CanvasRenderingContext2D): void {
 }
 
 function drawBoat(ctx: CanvasRenderingContext2D, t: number): void {
-  // A little moored rowboat, bobbing on the water.
   const px = 240;
   const bob = Math.sin(t / 900) * 1.6;
   ctx.save();
@@ -291,7 +504,6 @@ function drawBoat(ctx: CanvasRenderingContext2D, t: number): void {
   rr(ctx, -10, -3, 20, 4, 2);
   ctx.fill();
   ctx.restore();
-  // Rope to the pier.
   ctx.strokeStyle = "rgba(120, 90, 55, 0.7)";
   ctx.lineWidth = 1.3;
   ctx.beginPath();
@@ -305,12 +517,7 @@ function drawTree(ctx: CanvasRenderingContext2D, x: number, y: number, s = 1): v
   ctx.fillStyle = "#7C5A38";
   rr(ctx, x - 2 * s, y - 8 * s, 4 * s, 9 * s, 2 * s);
   ctx.fill();
-  const puffs: Array<[number, number, number]> = [
-    [0, -18, 11],
-    [-8, -12, 8.5],
-    [8, -12, 8.5],
-    [0, -10, 9],
-  ];
+  const puffs: Array<[number, number, number]> = [[0, -18, 11], [-8, -12, 8.5], [8, -12, 8.5], [0, -10, 9]];
   for (const [dx, dy, r] of puffs) {
     ctx.fillStyle = "#4FA93E";
     ctx.beginPath();
@@ -323,100 +530,16 @@ function drawTree(ctx: CanvasRenderingContext2D, x: number, y: number, s = 1): v
   ctx.fill();
 }
 
-function drawBush(ctx: CanvasRenderingContext2D, x: number, y: number): void {
-  softShadow(ctx, x, y + 1, 7, 2.5);
-  ctx.fillStyle = "#58B348";
-  ctx.beginPath();
-  ctx.arc(x - 4, y - 3, 4.5, 0, Math.PI * 2);
-  ctx.arc(x + 3, y - 4, 5, 0, Math.PI * 2);
-  ctx.arc(x, y - 2, 4.5, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-// ------------------------------------------------------------ layout
-
-const STATIONS: StationDef[] = [
-  {
-    id: "terminal",
-    name: "Terminal",
-    slots: [
-      { x: 106, y: 138 },
-      { x: 130, y: 138 },
-      { x: 154, y: 138 },
-    ],
-    labelAnchor: { x: 130, y: 146 },
-  },
-  {
-    id: "library",
-    name: "Library",
-    slots: [
-      { x: 328, y: 138 },
-      { x: 352, y: 138 },
-      { x: 376, y: 138 },
-    ],
-    labelAnchor: { x: 352, y: 146 },
-  },
-  {
-    id: "workshop",
-    name: "Workshop",
-    slots: [
-      { x: 106, y: 282 },
-      { x: 130, y: 282 },
-      { x: 154, y: 282 },
-    ],
-    labelAnchor: { x: 130, y: 290 },
-  },
-  {
-    id: "mailbox",
-    name: "Mailbox",
-    slots: [
-      { x: 330, y: 286 },
-      { x: 352, y: 286 },
-      { x: 374, y: 286 },
-    ],
-    labelAnchor: { x: 352, y: 292 },
-  },
-  {
-    id: "dock",
-    name: "Dock",
-    slots: [
-      { x: 222, y: 322 },
-      { x: 246, y: 322 },
-      { x: 258, y: 340 },
-      { x: 234, y: 344 },
-      { x: 212, y: 338 },
-    ],
-    labelAnchor: { x: 240, y: 354 },
-  },
-];
-
-const CATEGORY_STATION: Record<ToolCategory, StationId> = {
-  shell: "terminal",
-  search: "library",
-  files: "workshop",
-  human: "mailbox",
-  unknown: "workshop",
-};
-
-const BUILDING_POS = {
-  terminal: { x: 130, y: 122 },
-  library: { x: 352, y: 122 },
-  workshop: { x: 130, y: 266 },
-  mailbox: { x: 352, y: 266 },
-} as const;
-
 function drawPathTo(ctx: CanvasRenderingContext2D, x: number, y: number): void {
   ctx.beginPath();
-  ctx.moveTo(240, 192);
-  ctx.quadraticCurveTo((240 + x) / 2, (192 + y) / 2 + 12, x, y);
+  ctx.moveTo(PLAZA.x, PLAZA.y);
+  ctx.quadraticCurveTo((PLAZA.x + x) / 2, (PLAZA.y + y) / 2 + 10, x, y);
   ctx.stroke();
 }
 
 // ---------------------------------------------------- static scene
 
-function drawStaticScene(ctx: CanvasRenderingContext2D, theme: Theme): void {
-  // Visible viewport in logical coords (the canvas may extend past the
-  // theme's logical bounds; water covers all of it).
+function drawStaticScene(ctx: CanvasRenderingContext2D, theme: Theme, stations: StationDef[]): void {
   const m = ctx.getTransform();
   const vx = -m.e / m.a;
   const vy = -m.f / m.d;
@@ -428,7 +551,6 @@ function drawStaticScene(ctx: CanvasRenderingContext2D, theme: Theme): void {
   ctx.fillStyle = wg;
   ctx.fillRect(vx - 2, vy - 2, vw + 4, vh + 4);
 
-  // Foam ring + sand + grass plateau.
   ctx.save();
   ctx.strokeStyle = "rgba(255,255,255,0.5)";
   ctx.lineWidth = 5;
@@ -446,69 +568,57 @@ function drawStaticScene(ctx: CanvasRenderingContext2D, theme: Theme): void {
   ctx.fillStyle = vGrad(ctx, 60, 320, COLORS.grassLight, COLORS.grassDark);
   ctx.fill();
 
-  // Grass texture: sparse light flecks.
   ctx.save();
   islandPath(ctx, -8);
   ctx.clip();
   ctx.fillStyle = "rgba(255,255,255,0.12)";
   for (let i = 0; i < 40; i++) {
-    const gx = 90 + ((i * 83) % 300);
-    const gy = 75 + ((i * 53) % 220);
-    ctx.fillRect(gx, gy, 3, 1.4);
+    ctx.fillRect(90 + ((i * 83) % 300), 75 + ((i * 53) % 220), 3, 1.4);
   }
   ctx.restore();
 
-  // Paths from the central plaza to each station.
+  const ring = stations.filter((s) => s.kind !== "dock");
+
+  // Paths from the plaza to each ring station and to the dock.
   ctx.save();
   ctx.lineCap = "round";
-  ctx.strokeStyle = COLORS.pathEdge;
-  ctx.lineWidth = 13;
-  for (const s of [STATIONS[0]!, STATIONS[1]!, STATIONS[2]!, STATIONS[3]!]) {
-    const mid = s.slots[1]!;
-    drawPathTo(ctx, mid.x, mid.y - 2);
+  for (const [color, width] of [[COLORS.pathEdge, 13], [COLORS.path, 9]] as const) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    for (const s of ring) drawPathTo(ctx, s.slots[1]!.x, s.slots[1]!.y - 2);
+    drawPathTo(ctx, 240, 300);
   }
-  drawPathTo(ctx, 240, 300);
-  ctx.strokeStyle = COLORS.path;
-  ctx.lineWidth = 9;
-  for (const s of [STATIONS[0]!, STATIONS[1]!, STATIONS[2]!, STATIONS[3]!]) {
-    const mid = s.slots[1]!;
-    drawPathTo(ctx, mid.x, mid.y - 2);
-  }
-  drawPathTo(ctx, 240, 300);
   ctx.restore();
 
   // Central plaza.
-  softShadow(ctx, 240, 196, 26, 9, 0.1);
+  softShadow(ctx, PLAZA.x, PLAZA.y + 4, 26, 9, 0.1);
   ctx.fillStyle = COLORS.path;
   ctx.beginPath();
-  ctx.ellipse(240, 192, 26, 17, 0, 0, Math.PI * 2);
+  ctx.ellipse(PLAZA.x, PLAZA.y, 26, 17, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = COLORS.pathEdge;
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.ellipse(240, 192, 19, 11.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(PLAZA.x, PLAZA.y, 19, 11.5, 0, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Decorations.
-  drawTree(ctx, 196, 78, 0.9);
-  drawTree(ctx, 286, 84, 1.05);
-  drawTree(ctx, 86, 196, 1);
-  drawTree(ctx, 396, 200, 0.9);
-  drawBush(ctx, 174, 232);
-  drawBush(ctx, 308, 236);
-  drawBush(ctx, 240, 120);
-
-  // Dock + buildings (static parts).
-  drawDockStatic(ctx);
-  drawTerminalStatic(ctx, BUILDING_POS.terminal.x, BUILDING_POS.terminal.y);
-  drawLibrary(ctx, BUILDING_POS.library.x, BUILDING_POS.library.y);
-  drawWorkshop(ctx, BUILDING_POS.workshop.x, BUILDING_POS.workshop.y);
-  drawMailbox(ctx, BUILDING_POS.mailbox.x, BUILDING_POS.mailbox.y);
-
-  // Station name labels (map-style pills).
-  for (const s of STATIONS) {
-    theme.drawLabel(ctx, s.labelAnchor.x, s.labelAnchor.y, s.name);
+  // Small trees between the paths (inner ring), when there's room.
+  if (ring.length <= 8) {
+    const n = ring.length;
+    for (let i = 0; i < n; i++) {
+      const deg = 130 + (280 * (i + 1)) / n;
+      if (i === n - 1) continue; // gap toward the dock
+      const rad = (deg * Math.PI) / 180;
+      drawTree(ctx, RING.cx + RING.rx * 0.6 * Math.cos(rad), RING.cy + RING.ry * 0.6 * Math.sin(rad) + 6, 0.75);
+    }
   }
+
+  // Buildings back-to-front, then the dock.
+  const cs = crowdScale(ring.length);
+  for (const s of [...ring].sort((a, b) => a.y - b.y)) drawScaledBuilding(ctx, s, cs);
+  drawDockStatic(ctx);
+
+  for (const s of stations) theme.drawLabel(ctx, s.labelAnchor.x, s.labelAnchor.y, s.name);
 }
 
 // ------------------------------------------------------------- theme
@@ -522,23 +632,14 @@ export const isleTheme: Theme = {
   height: H,
   walkSpeed: 85,
   bubbleClearance: 34,
-  stations: STATIONS,
 
-  station(id: StationId): StationDef {
-    const s = STATIONS.find((st) => st.id === id);
-    if (!s) throw new Error(`no station ${id}`);
-    return s;
+  layoutStations,
+
+  drawWorldStatic(ctx: CanvasRenderingContext2D, stations: StationDef[]): void {
+    drawStaticScene(ctx, this, stations);
   },
 
-  stationFor(category: ToolCategory): StationId {
-    return CATEGORY_STATION[category] ?? "workshop";
-  },
-
-  drawWorldStatic(ctx: CanvasRenderingContext2D): void {
-    drawStaticScene(ctx, this);
-  },
-
-  drawWorldDynamic(ctx: CanvasRenderingContext2D, t: number): void {
+  drawWorldDynamic(ctx: CanvasRenderingContext2D, stations: StationDef[], t: number): void {
     // Drifting water highlights (skipped where the island sits).
     ctx.save();
     ctx.fillStyle = "rgba(255,255,255,0.10)";
@@ -547,7 +648,7 @@ export const isleTheme: Theme = {
       const py = ((i * 97) % (H + 120)) - 60 + Math.sin(t / 1400 + i) * 4;
       const nx = (px - 240) / 186;
       const ny = (py - 185) / 144;
-      if (nx * nx + ny * ny < 1) continue; // over the island
+      if (nx * nx + ny * ny < 1) continue;
       ctx.beginPath();
       ctx.ellipse(px, py, 16 + (i % 3) * 7, 2.2, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -555,7 +656,46 @@ export const isleTheme: Theme = {
     ctx.restore();
 
     drawBoat(ctx, t);
-    drawTerminalDynamic(ctx, BUILDING_POS.terminal.x, BUILDING_POS.terminal.y, t);
+
+    // Blinking antenna lights on shell terminals; flickering screens.
+    const cs = crowdScale(stations.filter((s) => s.kind !== "dock").length);
+    for (const s of stations) {
+      if (s.kind !== "shell") continue;
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.scale(cs, cs);
+      ctx.translate(-s.x, -s.y);
+      const fy = s.y - KIND_STYLE.shell.faceH;
+      ctx.fillStyle = Math.floor(t / 600) % 2 ? "#FF453A" : "#7A2E28";
+      ctx.beginPath();
+      ctx.arc(s.x + 18, fy - 32, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#0F2A20";
+      const iconY = fy + KIND_STYLE.shell.faceH * 0.5 - 1;
+      [12, 10, 15, 8].forEach((lw, i) => {
+        ctx.globalAlpha = Math.floor(t / 400 + i) % 4 !== i % 4 ? 1 : 0.35;
+        ctx.fillRect(s.x - 18, iconY - 5 + i * 3, lw, 1.6);
+      });
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    }
+  },
+
+  drawStationSelection(ctx: CanvasRenderingContext2D, st: StationDef, t: number): void {
+    const pulse = 1 + Math.sin(t / 350) * 0.05;
+    const w = (st.hit.w / 2) * pulse;
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,0.4)";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.ellipse(st.x, st.y + 4, w, w * 0.32, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.95)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(st.x, st.y + 4, w, w * 0.32, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   },
 
   drawAgent(ctx: CanvasRenderingContext2D, x: number, y: number, v: AgentVisual): void {
@@ -571,7 +711,6 @@ export const isleTheme: Theme = {
     ctx.save();
     ctx.globalAlpha = flicker;
 
-    // Selection ring (soft double stroke — no shadowBlur, it's slow).
     if (v.selected) {
       ctx.save();
       ctx.strokeStyle = "rgba(255,255,255,0.35)";
@@ -592,15 +731,13 @@ export const isleTheme: Theme = {
     ctx.translate(x, y + bob);
     if (v.facing === -1) ctx.scale(-1, 1);
 
-    // Feet.
     const step = v.walking ? Math.sin(t / 110) * 2.4 : 0;
     ctx.fillStyle = err ? "#9AA0A8" : color;
     ctx.beginPath();
-    ctx.ellipse(-3.4, -1.4 + (v.walking ? step : 0) * 0.35, 2.6, 2, 0, 0, Math.PI * 2);
-    ctx.ellipse(3.4, -1.4 - (v.walking ? step : 0) * 0.35, 2.6, 2, 0, 0, Math.PI * 2);
+    ctx.ellipse(-3.4, -1.4 + step * 0.35, 2.6, 2, 0, 0, Math.PI * 2);
+    ctx.ellipse(3.4, -1.4 - step * 0.35, 2.6, 2, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Body: rounded capsule with a soft top highlight.
     const bodyC = err ? "#B0B6BE" : color;
     const g = ctx.createLinearGradient(0, -17, 0, -1);
     g.addColorStop(0, bodyC);
@@ -608,18 +745,15 @@ export const isleTheme: Theme = {
     ctx.fillStyle = g;
     rr(ctx, -7, -17, 14, 15, 6.5);
     ctx.fill();
-    // Belly.
     ctx.fillStyle = "rgba(255,255,255,0.85)";
     ctx.beginPath();
     ctx.ellipse(0.5, -6.5, 4.6, 5, 0, 0, Math.PI * 2);
     ctx.fill();
-    // Top glint.
     ctx.fillStyle = "rgba(255,255,255,0.35)";
     ctx.beginPath();
     ctx.ellipse(-2.5, -14.5, 3, 1.6, -0.4, 0, Math.PI * 2);
     ctx.fill();
 
-    // Eyes (blink every few seconds).
     const blink = Math.floor(t / 2900 + v.variant) % 7 === 0 && t % 2900 < 140;
     ctx.fillStyle = COLORS.ink;
     if (blink) {
@@ -637,7 +771,6 @@ export const isleTheme: Theme = {
       ctx.fill();
     }
 
-    // Working: swinging a little wrench.
     if (working) {
       ctx.save();
       ctx.translate(7.5, -9);
@@ -651,11 +784,9 @@ export const isleTheme: Theme = {
       ctx.restore();
     }
 
-    ctx.restore(); // un-mirror + alpha
+    ctx.restore();
 
-    // ---- badges above the head (drawn unmirrored) ----
     const topY = y - 20 + bob;
-
     if (v.state === "awaiting_approval") {
       const pulse = 1 + Math.sin(t / 300) * 0.08;
       badge(ctx, x, topY - 5, 6.5 * pulse, COLORS.badgeOrange);
@@ -667,7 +798,6 @@ export const isleTheme: Theme = {
     } else if (v.state === "done") {
       badge(ctx, x, topY - 5, 6.5, COLORS.badgeGreen);
       check(ctx, x, topY - 5);
-      // Tiny victory flag planted beside the agent.
       ctx.strokeStyle = "#7C5A38";
       ctx.lineWidth = 1.6;
       ctx.beginPath();
@@ -735,18 +865,15 @@ export const isleTheme: Theme = {
     const tw = Math.max(...lines.map((l) => ctx.measureText(l).width));
     const bw = tw + 14;
     const bh = lines.length * 12 + 8;
-    let bx = x - bw / 2;
-    bx = Math.max(4, Math.min(W - bw - 4, bx));
+    const bx = Math.max(4, Math.min(W - bw - 4, x - bw / 2));
     const by = Math.max(4, y - bh - 10);
 
-    // Soft shadow as an offset fill (shadowBlur is too slow per frame).
     ctx.fillStyle = "rgba(30, 50, 80, 0.16)";
     rr(ctx, bx + 1, by + 2.5, bw, bh, 8);
     ctx.fill();
     ctx.fillStyle = "rgba(255,255,255,0.96)";
     rr(ctx, bx, by, bw, bh, 8);
     ctx.fill();
-    // Tail.
     ctx.beginPath();
     ctx.moveTo(x - 4, by + bh - 1);
     ctx.lineTo(x, by + bh + 6);
@@ -764,7 +891,8 @@ export const isleTheme: Theme = {
   drawLabel(ctx: CanvasRenderingContext2D, x: number, y: number, text: string): void {
     ctx.save();
     ctx.font = FONT(8, 700);
-    const tw = ctx.measureText(text.toUpperCase()).width;
+    const label = text.toUpperCase().slice(0, 22);
+    const tw = ctx.measureText(label).width;
     const bw = tw + 12;
     const bx = Math.max(2, Math.min(W - bw - 2, x - bw / 2));
     ctx.fillStyle = "rgba(28, 38, 52, 0.72)";
@@ -773,14 +901,12 @@ export const isleTheme: Theme = {
     ctx.fillStyle = "rgba(255,255,255,0.95)";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(text.toUpperCase(), bx + bw / 2, y + 5.8);
+    ctx.fillText(label, bx + bw / 2, y + 5.8);
     ctx.restore();
   },
 };
 
-// Shared badge helpers.
 function badge(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string): void {
-  // Offset fill instead of shadowBlur (too slow to draw every frame).
   ctx.fillStyle = "rgba(20, 30, 45, 0.22)";
   rr(ctx, x - r + 0.5, y - r + 1.5, r * 2, r * 2, r * 0.62);
   ctx.fill();
@@ -798,14 +924,4 @@ function check(ctx: CanvasRenderingContext2D, x: number, y: number): void {
   ctx.lineTo(x - 0.8, y + 2.4);
   ctx.lineTo(x + 3, y - 2.4);
   ctx.stroke();
-}
-
-/** Lighten/darken a hex color by pct (-100..100). */
-function shade(hex: string, pct: number): string {
-  const n = parseInt(hex.slice(1), 16);
-  const f = (c: number) => Math.max(0, Math.min(255, Math.round(c + (pct / 100) * 255)));
-  const r = f((n >> 16) & 255);
-  const g = f((n >> 8) & 255);
-  const b = f(n & 255);
-  return `rgb(${r},${g},${b})`;
 }

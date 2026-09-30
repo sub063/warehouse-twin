@@ -7,20 +7,45 @@
  */
 
 import { WebSocketServer, WebSocket } from "ws";
-import type { AgentSpec, ClientCommand, ServerMessage } from "../../shared/src";
+import type { AgentSpec, ClientCommand, ServerMessage, TerminalSpec } from "../../shared/src";
+import { TERMINAL_KINDS } from "../../shared/src";
 import { EventBus } from "./bus";
 import { MockAdapter } from "./mockAdapter";
 import { MOCK_SCRIPTS } from "./mockScripts";
+import { TerminalRegistry } from "./terminals";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = "127.0.0.1";
-// Default 3 agents on launch; MOCK_AGENTS=5 for soak testing (max = scripts available).
-const AGENT_COUNT = Math.min(Number(process.env.MOCK_AGENTS ?? 3), MOCK_SCRIPTS.length);
+// Default 4 agents on launch; MOCK_AGENTS=6 for soak testing (max = scripts available).
+const AGENT_COUNT = Math.min(Number(process.env.MOCK_AGENTS ?? 4), MOCK_SCRIPTS.length);
 
 const bus = new EventBus();
-// Milestone 2: approvals wait for the human (no auto-resolve).
-const adapter = new MockAdapter({ autoResolveApprovalsMs: null });
+const terminals = new TerminalRegistry((draft) => bus.publish(draft));
+// Approvals wait for the human (no auto-resolve); tool calls route to terminals.
+const adapter = new MockAdapter({
+  autoResolveApprovalsMs: null,
+  resolveTerminal: (universe, tool, category) => terminals.resolve(universe, tool, category),
+});
 adapter.onEvent((draft) => bus.publish(draft));
+
+/** Validate a terminal from the client; returns null if unusable. */
+function sanitizeTerminal(raw: unknown): Omit<TerminalSpec, "id"> | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const r = raw as Partial<TerminalSpec>;
+  if (typeof r.name !== "string" || !r.name.trim() || typeof r.universe !== "string" || !r.universe.trim()) {
+    return null;
+  }
+  const strings = (v: unknown, max: number) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim().slice(0, 60)).slice(0, max) : [];
+  return {
+    universe: r.universe.trim().slice(0, 40),
+    name: r.name.trim().slice(0, 40),
+    description: typeof r.description === "string" ? r.description.trim().slice(0, 300) : "",
+    kind: TERMINAL_KINDS.includes(r.kind as never) ? (r.kind as TerminalSpec["kind"]) : "custom",
+    tools: strings(r.tools, 20),
+    requires: strings(r.requires, 20),
+  };
+}
 
 /** Clamp and default a spawn spec from the client (it's untrusted input). */
 function sanitizeSpec(raw: unknown): AgentSpec | null {
@@ -51,9 +76,23 @@ function handleCommand(cmd: ClientCommand): void {
   switch (cmd.kind) {
     case "spawn": {
       const spec = sanitizeSpec(cmd.spec);
-      if (spec) adapter.start(spec);
+      if (spec) {
+        terminals.ensureDefaults(spec.universe);
+        adapter.start(spec);
+      }
       return;
     }
+    case "add_terminal": {
+      const t = sanitizeTerminal(cmd.terminal);
+      if (t) {
+        terminals.ensureDefaults(t.universe);
+        terminals.add(t.universe, t);
+      }
+      return;
+    }
+    case "remove_terminal":
+      if (typeof cmd.terminalId === "string") terminals.remove(cmd.terminalId);
+      return;
     case "pause":
       return adapter.pause(cmd.agentId);
     case "resume":
@@ -108,6 +147,9 @@ wss.on("listening", () => {
   console.log(`[agent-arcade] mock mode · ws://${HOST}:${PORT} · spawning ${AGENT_COUNT} agents`);
   // Stagger spawns a little so the dock doesn't teleport-crowd at t=0.
   MOCK_SCRIPTS.slice(0, AGENT_COUNT).forEach((script, i) => {
-    setTimeout(() => adapter.startScript(script), 500 + i * 1500);
+    setTimeout(() => {
+      terminals.ensure(script.spec.universe, script.terminals ?? []);
+      adapter.startScript(script);
+    }, 500 + i * 1500);
   });
 });

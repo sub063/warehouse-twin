@@ -1,24 +1,21 @@
 import { useState } from "react";
-import type { AgentSpec } from "../../../shared/src";
+import type { AgentSpec, WorldState } from "../../../shared/src";
+import { terminalsIn } from "../../../shared/src";
 import { sendCommand, setUniverse } from "../store";
 
-const ALL_TOOLS = [
-  "web.search",
-  "web.read",
-  "file.read",
-  "file.write",
-  "file.edit",
-  "file.delete",
-  "shell.run",
-];
+// What every universe's default terminals provide (used before the
+// universe has any terminals of its own).
+const BASE_TOOLS = ["web.search", "web.read", "file.read", "file.write", "file.edit", "file.delete", "shell.run"];
 
 const DEFAULT_TOOLS = ["web.search", "file.read", "file.edit", "shell.run"];
 
 export function SpawnModal({
+  world,
   universes,
   activeUniverse,
   onClose,
 }: {
+  world: WorldState;
   universes: string[];
   activeUniverse: string | null;
   onClose: () => void;
@@ -28,6 +25,13 @@ export function SpawnModal({
   const [universe, setUniverseField] = useState(activeUniverse ?? universes[0] ?? "Personal");
   const [model, setModel] = useState<"mock-fast" | "mock-std">("mock-std");
   const [tools, setTools] = useState<string[]>(DEFAULT_TOOLS);
+
+  // Tools come from the universe's terminals, grouped by terminal, so it's
+  // obvious where each capability lives. New universes get the base set.
+  const terminals = terminalsIn(world, universe.trim() || null);
+  const groups = terminals.length
+    ? terminals.map((t) => ({ label: t.name, tools: t.tools }))
+    : [{ label: "Default terminals", tools: BASE_TOOLS }];
   const [budgetKind, setBudgetKind] = useState<"tokens" | "usd">("tokens");
   const [budgetValue, setBudgetValue] = useState("25000");
   const [approvalRequired, setApprovalRequired] = useState(true);
@@ -100,15 +104,21 @@ export function SpawnModal({
         </div>
 
         <div className="field">
-          <span>Allowed tools</span>
-          <div className="tool-grid">
-            {ALL_TOOLS.map((t) => (
-              <label key={t} className="check">
-                <input type="checkbox" checked={tools.includes(t)} onChange={() => toggleTool(t)} />
-                <code>{t}</code>
-              </label>
-            ))}
-          </div>
+          <span>Allowed tools (by terminal)</span>
+          {groups.map((g) => (
+            <div key={g.label} className="tool-group">
+              <span className="tool-group-name">{g.label}</span>
+              <div className="tool-grid">
+                {g.tools.map((t) => (
+                  <label key={t} className="check">
+                    <input type="checkbox" checked={tools.includes(t)} onChange={() => toggleTool(t)} />
+                    <code>{t}</code>
+                  </label>
+                ))}
+                {g.tools.length === 0 && <span className="placeholder">no tools listed</span>}
+              </div>
+            </div>
+          ))}
         </div>
 
         <div className="field-row">

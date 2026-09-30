@@ -4,7 +4,7 @@
  * agents keep working until their budget stops them.
  */
 
-import type { AgentOutcome, AgentSpec, ToolCategory } from "../../shared/src";
+import type { AgentOutcome, AgentSpec, TerminalKind, ToolCategory } from "../../shared/src";
 
 export type MsRange = [number, number];
 
@@ -27,9 +27,19 @@ export type Step =
     }
   | { kind: "finish"; outcome: AgentOutcome };
 
+export interface MockTerminal {
+  name: string;
+  description: string;
+  kind: TerminalKind;
+  tools: string[];
+  requires: string[];
+}
+
 export interface MockScript {
   spec: AgentSpec;
   steps: Step[];
+  /** Terminals this script needs in its universe (created if missing). */
+  terminals?: MockTerminal[];
   /** When set, jump back to this step index after the last step (until budget/stop). */
   loopFrom?: number;
   /** After this many consecutive tool failures, give up with outcome "error". */
@@ -117,7 +127,82 @@ export const MOCK_SCRIPTS: MockScript[] = [
     giveUpAfterFailures: 3,
   },
   {
-    // Extra agents for soak testing (MOCK_AGENTS=5).
+    // The product pipeline: research -> images -> 3D -> storefront ->
+    // pricing -> marketing -> sales, each at its own terminal.
+    spec: {
+      name: "Forge",
+      goal: "Design, model, list and market a desk lamp product end to end",
+      model: "mock-std",
+      allowedTools: [
+        "web.search",
+        "higgsfield.generate_image",
+        "shell.run",
+        "meshy.text_to_3d",
+        "store.create_listing",
+        "store.set_price",
+        "ads.create_campaign",
+        "social.post",
+        "crm.log_sale",
+      ],
+      budget: { maxUsd: 0.5 },
+      approvalRequired: true,
+      universe: "Product Lab",
+    },
+    terminals: [
+      {
+        name: "Higgsfield Studio",
+        description: "Generate product images and marketing visuals",
+        kind: "image",
+        tools: ["higgsfield.generate_image"],
+        requires: ["Higgsfield API key"],
+      },
+      {
+        name: "Meshy 3D",
+        description: "Turn concepts and images into 3D product models",
+        kind: "model3d",
+        tools: ["meshy.text_to_3d"],
+        requires: ["Meshy API key"],
+      },
+      {
+        name: "Storefront",
+        description: "Create product listings and set prices on the shop",
+        kind: "store",
+        tools: ["store.create_listing", "store.set_price"],
+        requires: ["Shop connector"],
+      },
+      {
+        name: "Marketing Desk",
+        description: "Run promo campaigns and social posts",
+        kind: "marketing",
+        tools: ["ads.create_campaign", "social.post"],
+        requires: ["Ads + social connectors"],
+      },
+      {
+        name: "Sales Desk",
+        description: "Track leads and log sales in the CRM",
+        kind: "chat",
+        tools: ["crm.log_sale"],
+        requires: ["CRM connector"],
+      },
+    ],
+    steps: [
+      { kind: "say", text: "starting the product run" },
+      { kind: "tool", tool: "web.search", category: "search", args: "\"desk lamp\" trends 2026", ms: [6000, 9000], say: "researching the market", okResult: "3 trends noted" },
+      { kind: "think", ms: [3000, 5000], say: "sketching the concept" },
+      { kind: "tool", tool: "higgsfield.generate_image", category: "unknown", args: "desk lamp hero shot, studio light", ms: [8000, 12000], say: "rendering concept art", okResult: "4 images generated", failChance: 0.1, failResult: "generation timed out" },
+      { kind: "tool", tool: "shell.run", category: "shell", args: "npm run test:render", ms: [5000, 8000], say: "testing the render", okResult: "render checks pass", approval: "Run shell command: npm run test:render" },
+      { kind: "tool", tool: "meshy.text_to_3d", category: "unknown", args: "minimal desk lamp, matte finish", ms: [9000, 14000], say: "building the 3D model", okResult: "model exported (glb)", failChance: 0.1, failResult: "mesh generation failed" },
+      { kind: "tool", tool: "store.create_listing", category: "unknown", args: "Lumen Desk Lamp", ms: [6000, 9000], say: "publishing the listing", okResult: "listing live", approval: "Publish product listing: Lumen Desk Lamp" },
+      { kind: "tool", tool: "store.set_price", category: "unknown", args: "$49.00 (intro $39.00)", ms: [4000, 6000], say: "setting the price", okResult: "price set" },
+      { kind: "tool", tool: "ads.create_campaign", category: "unknown", args: "launch promo, $20/day", ms: [6000, 9000], say: "launching the promo", okResult: "campaign running", approval: "Create ad campaign: launch promo, $20/day" },
+      { kind: "tool", tool: "social.post", category: "unknown", args: "launch announcement", ms: [4000, 6000], say: "posting the launch", okResult: "posted" },
+      { kind: "tool", tool: "crm.log_sale", category: "unknown", args: "first orders", ms: [5000, 8000], say: "logging the sales", okResult: "3 sales logged" },
+      { kind: "think", ms: [4000, 6000], say: "reviewing the numbers" },
+    ],
+    loopFrom: 2,
+  },
+  {
+    // Extra agents for soak testing (MOCK_AGENTS=6).
     spec: {
       name: "Quill",
       goal: "Draft the v2.3 release notes",

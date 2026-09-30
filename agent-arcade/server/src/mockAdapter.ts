@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { AgentAdapter, AgentSpec, AgentState, DraftEvent } from "../../shared/src";
+import type { AgentAdapter, AgentSpec, AgentState, DraftEvent, ToolCategory } from "../../shared/src";
 import type { MockScript, MsRange, Step } from "./mockScripts";
 
 const rand = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
@@ -44,17 +44,21 @@ interface Runner {
 }
 
 export interface MockAdapterOptions {
-  /** Auto-resolve approvals after this many ms; 0 disables (milestone 2). */
+  /** Auto-resolve approvals after this many ms; null waits for a human. */
   autoResolveApprovalsMs?: MsRange | null;
+  /** Route a tool call to a terminal in the agent's universe. */
+  resolveTerminal?: (universe: string, tool: string, category: ToolCategory) => string | undefined;
 }
 
 export class MockAdapter implements AgentAdapter {
   private runners = new Map<string, Runner>();
   private listeners = new Set<(e: DraftEvent) => void>();
   private autoResolve: MsRange | null;
+  private resolveTerminal: MockAdapterOptions["resolveTerminal"];
 
   constructor(opts: MockAdapterOptions = {}) {
     this.autoResolve = opts.autoResolveApprovalsMs === undefined ? [7000, 12000] : opts.autoResolveApprovalsMs;
+    this.resolveTerminal = opts.resolveTerminal;
   }
 
   onEvent(listener: (e: DraftEvent) => void): void {
@@ -107,6 +111,22 @@ export class MockAdapter implements AgentAdapter {
     }
     if (has("shell.run")) {
       steps.push({ kind: "tool", tool: "shell.run", category: "shell", args: "run checks", ms: [6000, 10000], say: "running checks", okResult: "checks green", failChance: 0.15, failResult: "check failed", approval: "Run shell command: project checks" });
+    }
+    // Any other allowed tool (custom terminals): a generic step at its terminal.
+    const known = ["web.search", "web.read", "file.read", "file.write", "file.edit", "file.delete", "shell.run"];
+    for (const tool of spec.allowedTools.filter((t) => !known.includes(t))) {
+      const service = tool.split(".")[0] ?? tool;
+      steps.push({
+        kind: "tool",
+        tool,
+        category: "unknown",
+        args: `${spec.goal.slice(0, 40)}`,
+        ms: [7000, 12000],
+        say: `working with ${service}`,
+        okResult: `${tool} done`,
+        failChance: 0.08,
+        failResult: `${service} request failed`,
+      });
     }
     if (steps.length === 2) {
       // No tools allowed: think it over, report, and finish.
@@ -294,10 +314,11 @@ export class MockAdapter implements AgentAdapter {
   private runTool(r: Runner, step: Extract<Step, { kind: "tool" }>): void {
     this.setState(r, "using_tool");
     if (step.say) this.emit({ agentId: r.id, type: "message", payload: { from: "agent", text: step.say } });
+    const terminalId = this.resolveTerminal?.(r.script.spec.universe, step.tool, step.category);
     this.emit({
       agentId: r.id,
       type: "tool.started",
-      payload: { tool: step.tool, category: step.category, argsSummary: step.args },
+      payload: { tool: step.tool, category: step.category, argsSummary: step.args, terminalId },
     });
     const ms = dur(step.ms);
     this.schedule(r, ms, () => {

@@ -4,9 +4,9 @@
  * arrays (chars '0'..'3' = palette index dark->light, '.' transparent).
  */
 
-import type { ToolCategory } from "../../../../shared/src";
+import type { TerminalSpec } from "../../../../shared/src";
 import { GLYPH_H, drawText, textWidth } from "../pixfont";
-import type { AgentVisual, StationDef, StationId, Theme } from "../theme";
+import type { AgentVisual, StationDef, Theme } from "../theme";
 
 const PALETTE = ["#0f380f", "#306230", "#8bac0f", "#9bbc0f"] as const;
 const TILE = 16;
@@ -334,70 +334,117 @@ const SHADOW: Pixmap = [".22222222."];
 
 const DIM: readonly [number, number, number, number] = [0, 0, 1, 1];
 
-// ------------------------------------------------------------- layout
-
-const STATIONS: StationDef[] = [
-  {
-    id: "terminal",
-    name: "Terminal",
-    slots: [
-      { x: 48, y: 92 },
-      { x: 64, y: 92 },
-      { x: 80, y: 92 },
-    ],
-    labelAnchor: { x: 64, y: 20 },
-  },
-  {
-    id: "library",
-    name: "Library",
-    slots: [
-      { x: 240, y: 92 },
-      { x: 256, y: 92 },
-      { x: 272, y: 92 },
-    ],
-    labelAnchor: { x: 256, y: 20 },
-  },
-  {
-    id: "workshop",
-    name: "Workshop",
-    slots: [
-      { x: 48, y: 200 },
-      { x: 64, y: 200 },
-      { x: 80, y: 200 },
-    ],
-    labelAnchor: { x: 64, y: 262 },
-  },
-  {
-    id: "mailbox",
-    name: "Mailbox",
-    slots: [
-      { x: 246, y: 200 },
-      { x: 262, y: 200 },
-      { x: 278, y: 200 },
-    ],
-    labelAnchor: { x: 262, y: 262 },
-  },
-  {
-    id: "dock",
-    name: "Dock",
-    slots: [
-      { x: 142, y: 150 },
-      { x: 160, y: 150 },
-      { x: 178, y: 150 },
-      { x: 150, y: 170 },
-      { x: 170, y: 170 },
-    ],
-    labelAnchor: { x: 160, y: 198 },
-  },
+// Generic building for terminal kinds without bespoke art; the kind
+// code is written on its sign with the pixel font.
+const S_GENERIC: Pixmap = [
+  "...0000000000000000000000...",
+  "..0111111111111111111111110.",
+  ".01111111111111111111111110.",
+  "0000000000000000000000000000",
+  "0333333333333333333333333330",
+  "0333333333333333333333333330",
+  "0330000000000000003333333330",
+  "0330000000000000003333333330",
+  "0330000000000000003333333330",
+  "0330000000000000003333333330",
+  "0330000000000000003333333330",
+  "0330000000000000003333333330",
+  "0330000000000000003333333330",
+  "0333333333333333333333333330",
+  "0333333333333333333330003330",
+  "0333333333333333333330003330",
+  "0333333333333333333330003330",
+  "0000000000000000000000000000",
 ];
 
-const CATEGORY_STATION: Record<ToolCategory, StationId> = {
-  shell: "terminal",
-  search: "library",
-  files: "workshop",
-  human: "mailbox",
-  unknown: "workshop",
+const KIND_CODE: Record<string, string> = {
+  image: "IMG",
+  model3d: "3D",
+  store: "SHOP",
+  marketing: "ADS",
+  data: "DATA",
+  chat: "CHAT",
+  custom: "MISC",
 };
+
+// ------------------------------------------------------------- layout
+
+const RING = { cx: 160, cy: 150, rx: 112, ry: 66 };
+
+const DOCK: StationDef = {
+  id: "dock",
+  name: "Dock",
+  kind: "dock",
+  x: 160,
+  y: 192,
+  slots: [
+    { x: 142, y: 150 },
+    { x: 160, y: 150 },
+    { x: 178, y: 150 },
+    { x: 150, y: 170 },
+    { x: 170, y: 170 },
+  ],
+  labelAnchor: { x: 160, y: 198 },
+  hit: { x: 128, y: 128, w: 64, h: 64 },
+};
+
+function layoutStations(terminals: TerminalSpec[]): StationDef[] {
+  const ring: Array<{ id: string; name: string; kind: StationDef["kind"]; terminal?: TerminalSpec }> = [
+    ...terminals.map((t) => ({ id: t.id, name: t.name, kind: t.kind, terminal: t })),
+    { id: "mailbox", name: "Mailbox", kind: "mailbox" },
+  ];
+  const n = ring.length;
+  const out: StationDef[] = ring.map((r, i) => {
+    // Sweep clockwise from lower-left, skipping the south (dock) sector.
+    const deg = 130 + (280 * (i + 0.5)) / n;
+    const rad = (deg * Math.PI) / 180;
+    const x = Math.round(RING.cx + RING.rx * Math.cos(rad));
+    const y = Math.round(RING.cy + RING.ry * Math.sin(rad));
+    const stagger = n > 6 && i % 2 === 1 ? 7 : 0;
+    return {
+      id: r.id,
+      name: r.name,
+      kind: r.kind,
+      x,
+      y,
+      slots: [
+        { x: x - 12, y: y + 10 },
+        { x, y: y + 10 },
+        { x: x + 12, y: y + 10 },
+      ],
+      labelAnchor: { x, y: y + 15 + stagger },
+      hit: { x: x - 16, y: y - 24, w: 32, h: 36 },
+      terminal: r.terminal,
+    };
+  });
+  return [...out, DOCK];
+}
+
+function drawStructure(ctx: CanvasRenderingContext2D, st: StationDef): void {
+  const at = (pix: Pixmap) => {
+    const w = Math.max(...pix.map((r) => r.length));
+    blit(ctx, st.x - Math.floor(w / 2), st.y - pix.length, pix);
+  };
+  switch (st.kind) {
+    case "shell":
+      return at(S_TERMINAL);
+    case "research":
+      return at(S_LIBRARY);
+    case "files":
+      return at(S_WORKSHOP);
+    case "mailbox":
+      return at(S_MAILBOX);
+    case "dock":
+      return;
+    default: {
+      at(S_GENERIC);
+      const code = KIND_CODE[st.kind] ?? "MISC";
+      const left = st.x - 14;
+      const top = st.y - S_GENERIC.length;
+      drawText(ctx, left + 3, top + 7, code, PALETTE[3]);
+    }
+  }
+}
 
 // ------------------------------------------------------------- theme
 
@@ -410,23 +457,14 @@ export const handheldTheme: Theme = {
   height: ROWS * TILE,
   walkSpeed: 55,
   bubbleClearance: 25,
-  stations: STATIONS,
 
-  station(id: StationId): StationDef {
-    const s = STATIONS.find((st) => st.id === id);
-    if (!s) throw new Error(`no station ${id}`);
-    return s;
-  },
-
-  stationFor(category: ToolCategory): StationId {
-    return CATEGORY_STATION[category] ?? "workshop";
-  },
+  layoutStations,
 
   drawWorldDynamic(): void {
     // The pixel world has no ambient animation.
   },
 
-  drawWorldStatic(ctx: CanvasRenderingContext2D): void {
+  drawWorldStatic(ctx: CanvasRenderingContext2D, stations: StationDef[]): void {
     ctx.fillStyle = PALETTE[3];
     ctx.fillRect(0, 0, COLS * TILE, ROWS * TILE);
     for (let r = 0; r < ROWS; r++) {
@@ -436,16 +474,27 @@ export const handheldTheme: Theme = {
         blit(ctx, c * TILE, r * TILE, tile);
       }
     }
-    // Structures.
-    blit(ctx, 34, 28, S_TERMINAL);
-    blit(ctx, 242, 30, S_LIBRARY);
-    blit(ctx, 34, 214, S_WORKSHOP);
-    blit(ctx, 252, 214, S_MAILBOX);
     blit(ctx, 130, 124, S_MOORING);
+    for (const s of [...stations].sort((a, b) => a.y - b.y)) drawStructure(ctx, s);
     // Station name labels.
-    for (const s of STATIONS) {
-      const w = textWidth(s.name);
-      drawText(ctx, s.labelAnchor.x - Math.floor(w / 2), s.labelAnchor.y, s.name, PALETTE[0]);
+    for (const s of stations) {
+      const name = s.name.slice(0, 10);
+      const w = textWidth(name);
+      drawText(ctx, s.labelAnchor.x - Math.floor(w / 2), s.labelAnchor.y, name, PALETTE[0]);
+    }
+  },
+
+  drawStationSelection(ctx: CanvasRenderingContext2D, st: StationDef, t: number): void {
+    if (Math.floor(t / 400) % 2 === 0) return; // blink
+    const { x, y, w, h } = st.hit;
+    ctx.fillStyle = PALETTE[0];
+    for (const [cx, cy, cw, ch] of [
+      [x, y, 4, 1], [x, y, 1, 4],
+      [x + w - 4, y, 4, 1], [x + w - 1, y, 1, 4],
+      [x, y + h - 1, 4, 1], [x, y + h - 4, 1, 4],
+      [x + w - 4, y + h - 1, 4, 1], [x + w - 1, y + h - 4, 1, 4],
+    ] as const) {
+      ctx.fillRect(cx, cy, cw, ch);
     }
   },
 

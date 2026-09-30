@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentSpec, ArcadeEvent, DraftEvent } from "../src/events";
 import { initialState, reduce } from "../src/reducer";
-import { elapsedMs, filesChanged } from "../src/selectors";
+import { elapsedMs, filesChanged, terminalsIn, toolsAvailableIn } from "../src/selectors";
 
 const spec: AgentSpec = {
   name: "Testy",
@@ -59,5 +59,20 @@ describe("elapsedMs", () => {
     let s = reduce(initialState(), ev({ agentId: "a1", type: "agent.created", payload: { spec } }, 5000));
     s = reduce(s, ev({ agentId: "a1", type: "agent.finished", payload: { outcome: "completed" } }, 9000));
     expect(elapsedMs(s.agents["a1"]!, 99_999_999)).toBe(4000);
+  });
+});
+
+describe("terminalsIn / toolsAvailableIn", () => {
+  it("filters terminals by universe and unions their tools", () => {
+    let s = initialState();
+    const mk = (id: string, universe: string, tools: string[]) =>
+      ev({ agentId: "", type: "terminal.added", payload: { terminal: { id, universe, name: id, description: "", kind: "custom", tools, requires: [] } } });
+    s = reduce(s, mk("a", "Personal", ["web.search"]));
+    s = reduce(s, mk("b", "Business", ["shell.run", "web.search"]));
+    s = reduce(s, mk("c", "Business", ["meshy.text_to_3d"]));
+    expect(terminalsIn(s, "Business").map((t) => t.id)).toEqual(["b", "c"]);
+    expect(terminalsIn(s, null).map((t) => t.id)).toEqual(["a", "b", "c"]);
+    expect(toolsAvailableIn(s, "Business")).toEqual(["shell.run", "web.search", "meshy.text_to_3d"]);
+    expect(toolsAvailableIn(s, null)).toEqual(["web.search", "shell.run", "meshy.text_to_3d"]);
   });
 });

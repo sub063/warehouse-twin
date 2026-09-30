@@ -3,21 +3,34 @@
  * tileset, station layout, sprites, overlays, text. The renderer
  * (WorldCanvas + sim) only computes positions/animation timing and calls
  * these hooks, so a second theme (e.g. a space map where agents are ships
- * and stations are planets) can be added without touching event or
+ * and terminals are planets) can be added without touching event or
  * control code.
+ *
+ * Stations are dynamic: each universe has its own terminals, so the
+ * theme lays them out on demand (plus the built-in Dock and Mailbox).
  */
 
-import type { AgentState, ToolCategory } from "../../../shared/src";
+import type { AgentState, TerminalKind, TerminalSpec } from "../../../shared/src";
 
-export type StationId = "terminal" | "library" | "workshop" | "mailbox" | "dock";
+/** Built-in stations every world has, alongside the universe's terminals. */
+export type BuiltinStationId = "dock" | "mailbox";
 
 export interface StationDef {
-  id: StationId;
+  /** Terminal id, or a built-in id. */
+  id: string;
   name: string;
-  /** Points (base-resolution px, feet anchor) where agents stand to work. */
+  kind: TerminalKind | "dock" | "mailbox";
+  /** Building anchor (center x, ground y) in logical px. */
+  x: number;
+  y: number;
+  /** Points (logical px, feet anchor) where agents stand to work. */
   slots: Array<{ x: number; y: number }>;
-  /** Anchor for floating labels (e.g. unknown tool name), base px. */
+  /** Anchor for the name label / floating labels, logical px. */
   labelAnchor: { x: number; y: number };
+  /** Rough hit box for clicking the building (logical px). */
+  hit: { x: number; y: number; w: number; h: number };
+  /** Set for user terminals (not for built-ins). */
+  terminal?: TerminalSpec;
 }
 
 /** Everything the theme needs to draw one agent this frame. */
@@ -53,25 +66,29 @@ export interface Theme {
    * high enough to clear the sprite and any overhead state badges.
    */
   bubbleClearance: number;
-  stations: StationDef[];
-  station(id: StationId): StationDef;
-  stationFor(category: ToolCategory): StationId;
+  /**
+   * Place the universe's terminals plus the built-in Dock and Mailbox.
+   * Pure: same terminals in, same layout out.
+   */
+  layoutStations(terminals: TerminalSpec[]): StationDef[];
   /**
    * Draw the static world (ground, decorations, stations, labels).
-   * Called once per resize, never per frame — the renderer caches it
-   * (offscreen for pixel themes, a layered canvas for smooth ones).
+   * Called once per resize or layout change, never per frame — the
+   * renderer caches it.
    */
-  drawWorldStatic(ctx: CanvasRenderingContext2D): void;
+  drawWorldStatic(ctx: CanvasRenderingContext2D, stations: StationDef[]): void;
   /**
    * Draw the animated world details (ambient motion like water glints
    * or blinking lights). Called every frame, on top of the static
    * layer and under the agents. Keep it cheap.
    */
-  drawWorldDynamic(ctx: CanvasRenderingContext2D, timeMs: number): void;
+  drawWorldDynamic(ctx: CanvasRenderingContext2D, stations: StationDef[], timeMs: number): void;
   /** Draw one agent (sprite + state overlays) with feet at (x, y). */
   drawAgent(ctx: CanvasRenderingContext2D, x: number, y: number, v: AgentVisual): void;
   /** Speech bubble above a head at (x, y = top of sprite). */
   drawBubble(ctx: CanvasRenderingContext2D, x: number, y: number, text: string): void;
   /** Small floating label, centered on x. */
   drawLabel(ctx: CanvasRenderingContext2D, x: number, y: number, text: string): void;
+  /** Highlight a station (selected terminal). */
+  drawStationSelection(ctx: CanvasRenderingContext2D, station: StationDef, timeMs: number): void;
 }

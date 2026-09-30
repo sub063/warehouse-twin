@@ -9,6 +9,7 @@ import type {
   AgentSpec,
   AgentState,
   ArcadeEvent,
+  TerminalSpec,
   ToolCategory,
 } from "./events";
 import { isKnownEventType } from "./events";
@@ -17,6 +18,8 @@ export interface ToolRun {
   tool: string;
   category: ToolCategory;
   argsSummary: string;
+  /** Terminal the call was routed to, when the adapter said. */
+  terminalId?: string;
   startedTs: number;
   /** Set once tool.finished arrives. */
   ok?: boolean;
@@ -68,6 +71,10 @@ export interface WorldState {
   agents: Record<string, AgentView>;
   /** Agent ids in creation order. */
   order: string[];
+  /** Terminals by id, across all universes (filter by .universe). */
+  terminals: Record<string, TerminalSpec>;
+  /** Terminal ids in creation order. */
+  terminalOrder: string[];
   totalCostUsd: number;
   /** Highest seq applied. */
   lastSeq: number;
@@ -78,7 +85,15 @@ export interface WorldState {
 export const MAX_IGNORED = 100;
 
 export function initialState(): WorldState {
-  return { agents: {}, order: [], totalCostUsd: 0, lastSeq: -1, ignored: [] };
+  return {
+    agents: {},
+    order: [],
+    terminals: {},
+    terminalOrder: [],
+    totalCostUsd: 0,
+    lastSeq: -1,
+    ignored: [],
+  };
 }
 
 function ignore(state: WorldState, entry: IgnoredEvent): WorldState {
@@ -167,6 +182,7 @@ function apply(state: WorldState, e: ArcadeEvent): WorldState {
           tool: e.payload.tool,
           category: e.payload.category,
           argsSummary: e.payload.argsSummary,
+          terminalId: e.payload.terminalId,
           startedTs: e.ts,
         },
       }));
@@ -236,6 +252,32 @@ function apply(state: WorldState, e: ArcadeEvent): WorldState {
         stateSince: e.ts,
         currentTool: undefined,
       }));
+
+    case "terminal.added": {
+      const t = e.payload.terminal;
+      if (!t || typeof t.id !== "string" || typeof t.universe !== "string") {
+        return ignore(state, { reason: "malformed terminal", type: e.type, seq: e.seq });
+      }
+      const exists = Boolean(state.terminals[t.id]);
+      return {
+        ...state,
+        terminals: { ...state.terminals, [t.id]: t },
+        terminalOrder: exists ? state.terminalOrder : [...state.terminalOrder, t.id],
+      };
+    }
+
+    case "terminal.removed": {
+      if (!state.terminals[e.payload.terminalId]) {
+        return ignore(state, { reason: "remove of unknown terminal", type: e.type, seq: e.seq });
+      }
+      const terminals = { ...state.terminals };
+      delete terminals[e.payload.terminalId];
+      return {
+        ...state,
+        terminals,
+        terminalOrder: state.terminalOrder.filter((id) => id !== e.payload.terminalId),
+      };
+    }
   }
 }
 

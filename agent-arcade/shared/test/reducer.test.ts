@@ -249,3 +249,53 @@ describe("reduceAll / replay", () => {
     expect(s.lastSeq).toBe(Math.max(e1.seq, e2.seq));
   });
 });
+
+describe("terminal.added / terminal.removed", () => {
+  const term = {
+    id: "t1",
+    universe: "Testland",
+    name: "Higgsfield Studio",
+    description: "generate product images",
+    kind: "image" as const,
+    tools: ["higgsfield.generate_image"],
+    requires: ["Higgsfield API key"],
+  };
+
+  it("adds terminals (universe-level events carry an empty agentId)", () => {
+    const s = reduce(initialState(), ev({ agentId: "", type: "terminal.added", payload: { terminal: term } }));
+    expect(s.terminals["t1"]?.name).toBe("Higgsfield Studio");
+    expect(s.terminalOrder).toEqual(["t1"]);
+    expect(s.ignored).toEqual([]);
+  });
+
+  it("re-adding the same id updates in place without duplicating order", () => {
+    let s = reduce(initialState(), ev({ agentId: "", type: "terminal.added", payload: { terminal: term } }));
+    s = reduce(s, ev({ agentId: "", type: "terminal.added", payload: { terminal: { ...term, name: "Studio v2" } } }));
+    expect(s.terminals["t1"]?.name).toBe("Studio v2");
+    expect(s.terminalOrder).toEqual(["t1"]);
+  });
+
+  it("removes terminals and ignores removal of unknown ids", () => {
+    let s = reduce(initialState(), ev({ agentId: "", type: "terminal.added", payload: { terminal: term } }));
+    s = reduce(s, ev({ agentId: "", type: "terminal.removed", payload: { terminalId: "t1", universe: "Testland" } }));
+    expect(s.terminals["t1"]).toBeUndefined();
+    expect(s.terminalOrder).toEqual([]);
+    s = reduce(s, ev({ agentId: "", type: "terminal.removed", payload: { terminalId: "ghost", universe: "Testland" } }));
+    expect(s.ignored.at(-1)?.reason).toBe("remove of unknown terminal");
+  });
+
+  it("a malformed terminal payload is ignored, not fatal", () => {
+    const s = reduce(initialState(), ev({ agentId: "", type: "terminal.added", payload: { terminal: { nope: 1 } } } as unknown as DraftEvent));
+    expect(s.terminalOrder).toEqual([]);
+    expect(s.ignored.at(-1)?.reason).toBe("malformed terminal");
+  });
+
+  it("tool.started records the terminal it was routed to", () => {
+    let s = reduce(initialState(), created());
+    s = reduce(
+      s,
+      ev({ agentId: "a1", type: "tool.started", payload: { tool: "higgsfield.generate_image", category: "unknown", argsSummary: "hero shot", terminalId: "t1" } }),
+    );
+    expect(s.agents["a1"]!.currentTool?.terminalId).toBe("t1");
+  });
+});

@@ -13,6 +13,8 @@ export interface UiState {
   /** "mock" until milestone 3 introduces live mode. */
   mode: "mock";
   selectedAgentId?: string;
+  /** Selected station (terminal id, or "dock"/"mailbox"). */
+  selectedTerminalId?: string;
   /** Active universe (workspace) filter; null = all universes. */
   activeUniverse: string | null;
   themeId: "isle" | "handheld";
@@ -42,14 +44,25 @@ function set(next: UiState): void {
 }
 
 export function selectAgent(id: string | undefined): void {
-  set({ ...state, selectedAgentId: id });
+  set({ ...state, selectedAgentId: id, selectedTerminalId: id ? undefined : state.selectedTerminalId });
+}
+
+export function selectTerminal(id: string | undefined): void {
+  set({ ...state, selectedTerminalId: id, selectedAgentId: id ? undefined : state.selectedAgentId });
 }
 
 export function setUniverse(universe: string | null): void {
-  // Drop the selection if the selected agent isn't in the new universe.
+  // Drop selections that aren't in the new universe.
   const sel = state.selectedAgentId ? state.world.agents[state.selectedAgentId] : undefined;
-  const keep = sel && (universe === null || sel.spec.universe === universe);
-  set({ ...state, activeUniverse: universe, selectedAgentId: keep ? state.selectedAgentId : undefined });
+  const keepAgent = sel && (universe === null || sel.spec.universe === universe);
+  const term = state.selectedTerminalId ? state.world.terminals[state.selectedTerminalId] : undefined;
+  const keepTerminal = state.selectedTerminalId && (!term || universe === null || term.universe === universe);
+  set({
+    ...state,
+    activeUniverse: universe,
+    selectedAgentId: keepAgent ? state.selectedAgentId : undefined,
+    selectedTerminalId: keepTerminal ? state.selectedTerminalId : undefined,
+  });
 }
 
 export function setTheme(themeId: "isle" | "handheld"): void {
