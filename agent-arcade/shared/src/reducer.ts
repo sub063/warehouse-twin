@@ -9,10 +9,23 @@ import type {
   AgentSpec,
   AgentState,
   ArcadeEvent,
+  MissionSpec,
+  TaskSpec,
   TerminalSpec,
   ToolCategory,
 } from "./events";
-import { isKnownEventType } from "./events";
+import { isKnownEventType, normalizeUniverse } from "./events";
+
+export interface TeamMessage {
+  id: string;
+  ts: number;
+  universe: string;
+  missionId?: string;
+  /** Sender agent id, or "" for the human. */
+  agentId: string;
+  fromName: string;
+  text: string;
+}
 
 export interface ToolRun {
   tool: string;
@@ -54,6 +67,8 @@ export interface AgentView {
   lastTool?: ToolRun;
   /** Short status text for the speech bubble. */
   bubble?: string;
+  /** Standing instructions from the human. */
+  instructions?: string;
   pendingApprovals: PendingApproval[];
   usage: Usage;
   /** Full per-agent event timeline (drives the detail panel and replay). */
@@ -75,6 +90,12 @@ export interface WorldState {
   terminals: Record<string, TerminalSpec>;
   /** Terminal ids in creation order. */
   terminalOrder: string[];
+  missions: Record<string, MissionSpec>;
+  missionOrder: string[];
+  tasks: Record<string, TaskSpec>;
+  taskOrder: string[];
+  /** Team channel messages, oldest first (capped). */
+  teamMessages: TeamMessage[];
   totalCostUsd: number;
   /** Highest seq applied. */
   lastSeq: number;
@@ -83,6 +104,7 @@ export interface WorldState {
 }
 
 export const MAX_IGNORED = 100;
+export const MAX_TEAM_MESSAGES = 500;
 
 export function initialState(): WorldState {
   return {
@@ -90,6 +112,11 @@ export function initialState(): WorldState {
     order: [],
     terminals: {},
     terminalOrder: [],
+    missions: {},
+    missionOrder: [],
+    tasks: {},
+    taskOrder: [],
+    teamMessages: [],
     totalCostUsd: 0,
     lastSeq: -1,
     ignored: [],
@@ -153,7 +180,7 @@ function apply(state: WorldState, e: ArcadeEvent): WorldState {
       }
       const view: AgentView = {
         id: e.agentId,
-        spec: e.payload.spec,
+        spec: { ...e.payload.spec, universe: normalizeUniverse(e.payload.spec.universe) },
         state: "idle",
         stateSince: e.ts,
         createdTs: e.ts,
@@ -261,9 +288,66 @@ function apply(state: WorldState, e: ArcadeEvent): WorldState {
       const exists = Boolean(state.terminals[t.id]);
       return {
         ...state,
-        terminals: { ...state.terminals, [t.id]: t },
+        terminals: { ...state.terminals, [t.id]: { ...t, universe: normalizeUniverse(t.universe) } },
         terminalOrder: exists ? state.terminalOrder : [...state.terminalOrder, t.id],
       };
+    }
+
+    case "agent.instructions_set":
+      return withAgent(state, e, (a) => ({ ...a, instructions: e.payload.text }));
+
+    case "mission.created": {
+      const m = e.payload.mission;
+      if (!m || typeof m.id !== "string") return ignore(state, { reason: "malformed mission", type: e.type, seq: e.seq });
+      const mission = { ...m, universe: normalizeUniverse(m.universe) };
+      return {
+        ...state,
+        missions: { ...state.missions, [m.id]: mission },
+        missionOrder: state.missions[m.id] ? state.missionOrder : [...state.missionOrder, m.id],
+      };
+    }
+
+    case "mission.updated": {
+      const m = state.missions[e.payload.missionId];
+      if (!m) return ignore(state, { reason: "update of unknown mission", type: e.type, seq: e.seq });
+      return { ...state, missions: { ...state.missions, [m.id]: { ...m, status: e.payload.status } } };
+    }
+
+    case "task.created": {
+      const t = e.payload.task;
+      if (!t || typeof t.id !== "string") return ignore(state, { reason: "malformed task", type: e.type, seq: e.seq });
+      const task: TaskSpec = { ...t, universe: normalizeUniverse(t.universe), progress: clampPct(t.progress) };
+      return {
+        ...state,
+        tasks: { ...state.tasks, [t.id]: task },
+        taskOrder: state.tasks[t.id] ? state.taskOrder : [...state.taskOrder, t.id],
+      };
+    }
+
+    case "task.updated": {
+      const t = state.tasks[e.payload.taskId];
+      if (!t) return ignore(state, { reason: "update of unknown task", type: e.type, seq: e.seq });
+      const next: TaskSpec = {
+        ...t,
+        status: e.payload.status ?? t.status,
+        progress: e.payload.progress !== undefined ? clampPct(e.payload.progress) : t.progress,
+        assigneeId: e.payload.assigneeId ?? t.assigneeId,
+      };
+      if (next.status === "done") next.progress = 100;
+      return { ...state, tasks: { ...state.tasks, [t.id]: next } };
+    }
+
+    case "team.message": {
+      const msg: TeamMessage = {
+        id: e.id,
+        ts: e.ts,
+        universe: normalizeUniverse(e.payload.universe),
+        missionId: e.payload.missionId,
+        agentId: e.agentId,
+        fromName: e.payload.fromName,
+        text: e.payload.text,
+      };
+      return { ...state, teamMessages: [...state.teamMessages, msg].slice(-MAX_TEAM_MESSAGES) };
     }
 
     case "terminal.removed": {
@@ -279,6 +363,11 @@ function apply(state: WorldState, e: ArcadeEvent): WorldState {
       };
     }
   }
+}
+
+function clampPct(n: unknown): number {
+  const v = typeof n === "number" && Number.isFinite(n) ? n : 0;
+  return Math.max(0, Math.min(100, Math.round(v)));
 }
 
 /** Reduce a whole ordered log (used for snapshots and replay). */

@@ -254,7 +254,7 @@ describe("ClaudeAdapter", () => {
     adapter.start(spec({ allowedTools: ["meshy.text_to_3d"] }));
     await until(() => Boolean(done(events)));
     const toolNames = (s.calls[0]!.tools ?? []).map((t) => (t as { name: string }).name);
-    expect(toolNames).toEqual(["meshy.text_to_3d"]);
+    expect(toolNames).toEqual(["meshy.text_to_3d", "team.post"]);
     const started = events.find((e) => e.type === "tool.started");
     expect(started?.type === "tool.started" && started.payload.terminalId).toBe("m");
     const res = (s.calls[1]!.messages.at(-1)!.content as Anthropic.ToolResultBlockParam[])[0]!;

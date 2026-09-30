@@ -178,6 +178,29 @@ export class MockAdapter implements AgentAdapter {
     this.emit({ agentId, type: "message", payload: { from: "agent", text: "noted, will do" } });
   }
 
+  setInstructions(agentId: string, text: string): void {
+    const r = this.runners.get(agentId);
+    if (!r || r.finished) return;
+    this.emit({ agentId, type: "agent.instructions_set", payload: { text } });
+    this.emit({ agentId, type: "message", payload: { from: "agent", text: "got it, following new instructions" } });
+  }
+
+  deliverTeamMessage(agentId: string, fromName: string, text: string): void {
+    const r = this.runners.get(agentId);
+    if (!r || r.finished || r.paused) return;
+    // Only reply to the human, and only from the one agent that's mid-task,
+    // so a broadcast doesn't turn into a pile-on.
+    if (fromName !== "You" || r.state !== "using_tool") return;
+    setTimeout(() => {
+      if (r.finished) return;
+      this.emit({
+        agentId,
+        type: "team.message",
+        payload: { universe: r.script.spec.universe, missionId: r.script.spec.missionId, fromName: r.script.spec.name, text: `Got it: "${text.slice(0, 60)}" — I'll factor that in.` },
+      });
+    }, 1500 + Math.random() * 1500);
+  }
+
   resolveApproval(agentId: string, actionId: string, approved: boolean): void {
     const r = this.runners.get(agentId);
     if (!r || r.finished || r.pendingApproval?.actionId !== actionId) return;
@@ -272,6 +295,16 @@ export class MockAdapter implements AgentAdapter {
     switch (step.kind) {
       case "say":
         this.emit({ agentId: r.id, type: "message", payload: { from: "agent", text: step.text } });
+        this.schedule(r, randInt(800, 1600), () => this.nextStep(r));
+        return;
+
+      case "team":
+        this.emit({
+          agentId: r.id,
+          type: "team.message",
+          payload: { universe: r.script.spec.universe, missionId: r.script.spec.missionId, fromName: r.script.spec.name, text: step.text },
+        });
+        this.emit({ agentId: r.id, type: "message", payload: { from: "agent", text: step.text.length > 40 ? step.text.slice(0, 38) + "…" : step.text } });
         this.schedule(r, randInt(800, 1600), () => this.nextStep(r));
         return;
 

@@ -49,6 +49,8 @@ export interface ClaudeAdapterOptions {
   workspaceRoot: string;
   resolveTerminal?: (universe: string, tool: string, category: ToolCategory) => string | undefined;
   terminalsFor?: (universe: string) => TerminalSpec[];
+  /** Recent team-channel lines for the agent's universe (newest last). */
+  teamContext?: (universe: string) => string[];
   /** Max tokens per model turn. */
   maxTokens?: number;
 }
@@ -85,6 +87,7 @@ interface Run {
   abort: AbortController;
   stream?: StreamHandle;
   inbox: string[];
+  instructions?: string;
   pendingApproval?: { actionId: string; resolve: (approved: boolean) => void };
 }
 
@@ -174,6 +177,20 @@ export class ClaudeAdapter implements AgentAdapter {
     r.inbox.push(text);
   }
 
+  setInstructions(agentId: string, text: string): void {
+    const r = this.runs.get(agentId);
+    if (!r || r.finished) return;
+    r.instructions = text;
+    this.emit({ agentId, type: "agent.instructions_set", payload: { text } });
+    r.inbox.push(`(standing instructions updated) ${text}`);
+  }
+
+  deliverTeamMessage(agentId: string, fromName: string, text: string): void {
+    const r = this.runs.get(agentId);
+    if (!r || r.finished) return;
+    r.inbox.push(`[team channel] ${fromName}: ${text}`);
+  }
+
   resolveApproval(agentId: string, actionId: string, approved: boolean): void {
     const r = this.runs.get(agentId);
     if (!r || r.finished || r.pendingApproval?.actionId !== actionId) return;
@@ -250,6 +267,10 @@ export class ClaudeAdapter implements AgentAdapter {
         ["request"],
       ));
     }
+    tools.push(custom("team.post", "Post a short message to your team channel: hand-offs, questions, findings other agents need. Keep it to one or two sentences.", { text: { type: "string", description: "The message" } }, ["text"]));
+    if (r.spec.taskId) {
+      tools.push(custom("task.update", "Report progress on your assigned task.", { progress: { type: "integer", description: "0-100" }, note: { type: "string", description: "One line on where things stand" } }, ["progress", "note"]));
+    }
     if (allowed.has("web.search") || allowed.has("web.read")) {
       tools.push({ type: "web_search_20260209", name: "web_search", max_uses: 8 });
     }
@@ -260,8 +281,12 @@ export class ClaudeAdapter implements AgentAdapter {
     const terminals = (this.opts.terminalsFor?.(r.spec.universe) ?? [])
       .map((t) => `- ${t.name} (${t.kind}): ${t.description || "no description"}; tools: ${t.tools.join(", ") || "none"}`)
       .join("\n");
+    const team = (this.opts.teamContext?.(r.spec.universe) ?? []).slice(-12);
     return [
-      `You are "${r.spec.name}", an agent in the "${r.spec.universe}" universe of Agent Arcade.`,
+      `You are "${r.spec.name}"${r.spec.role ? ` (${r.spec.role})` : ""}, an agent in the "${r.spec.universe}" universe of Agent Arcade.`,
+      r.spec.missionId ? `You are part of a team working toward a shared goal. Your assigned task is described in the user's message; other agents handle the other tasks. Use team.post to hand off, ask, or share results, and task.update to report progress.` : "",
+      r.instructions ? `Standing instructions from the human (always follow these):\n${r.instructions}` : "",
+      team.length ? `Recent team channel:\n${team.map((l) => `- ${l}`).join("\n")}` : "",
       `You work only inside your own workspace folder; all file paths are relative to it and paths outside it are rejected.`,
       `Shell commands and file deletions may need a human's approval; if one is denied, adapt and continue.`,
       `Before each tool call, say in one short sentence what you are about to do. When the goal is complete, give a brief summary and stop.`,
@@ -391,6 +416,7 @@ export class ClaudeAdapter implements AgentAdapter {
   }
 
   private categoryOf(tool: string): ToolCategory {
+    if (tool === "team.post" || tool === "task.update") return "human";
     if (tool === "shell.run") return "shell";
     if (tool.startsWith("file.")) return "files";
     if (tool.startsWith("web.")) return "search";
@@ -428,7 +454,8 @@ export class ClaudeAdapter implements AgentAdapter {
   private async runTool(r: Run, tu: Anthropic.ToolUseBlock): Promise<Anthropic.ToolResultBlockParam> {
     const input = (typeof tu.input === "object" && tu.input !== null ? tu.input : {}) as Record<string, unknown>;
     const category = this.categoryOf(tu.name);
-    const terminalId = this.opts.resolveTerminal?.(r.spec.universe, tu.name, category);
+    const meta = tu.name === "team.post" || tu.name === "task.update";
+    const terminalId = meta ? undefined : this.opts.resolveTerminal?.(r.spec.universe, tu.name, category);
     const started = Date.now();
 
     if (r.spec.approvalRequired && GATED_TOOLS.has(tu.name)) {
@@ -508,6 +535,18 @@ export class ClaudeAdapter implements AgentAdapter {
         if (path.resolve(p) === path.resolve(r.workspace)) throw new SandboxError("refusing to delete the workspace itself");
         await fs.rm(p, { recursive: true, force: false });
         return { ok: true, summary: "deleted", content: `deleted ${str("path")}` };
+      }
+      case "team.post": {
+        const text = str("text").slice(0, 400);
+        this.emit({ agentId: r.id, type: "team.message", payload: { universe: r.spec.universe, missionId: r.spec.missionId, fromName: r.spec.name, text } });
+        return { ok: true, summary: truncate(text, 60), content: "posted to the team channel" };
+      }
+      case "task.update": {
+        if (!r.spec.taskId) return { ok: false, summary: "no task", content: "you have no assigned task" };
+        const progress = Math.max(0, Math.min(99, Number(input["progress"]) || 0));
+        const note = str("note").slice(0, 200);
+        this.emit({ agentId: r.id, type: "task.updated", payload: { taskId: r.spec.taskId, progress, note } });
+        return { ok: true, summary: `${progress}% — ${truncate(note, 50)}`, content: "progress recorded" };
       }
       default: {
         const custom = this.customTerminalTools(r).find((c) => c.tool === tool);

@@ -36,6 +36,42 @@ export interface Budget {
   maxUsd?: number;
 }
 
+/** The two universes (workspaces). Anything else folds into Business. */
+export type Universe = "Personal" | "Business";
+export const UNIVERSES: readonly Universe[] = ["Personal", "Business"];
+export function normalizeUniverse(u: unknown): Universe {
+  return u === "Personal" ? "Personal" : "Business";
+}
+
+export type TaskStatus = "planned" | "in_progress" | "review" | "done";
+
+export interface TaskSpec {
+  id: string;
+  universe: string;
+  /** Mission (shared goal) this task belongs to, if any. */
+  missionId?: string;
+  title: string;
+  detail: string;
+  /** Agent working on it, if assigned. */
+  assigneeId?: string;
+  status: TaskStatus;
+  /** 0-100 */
+  progress: number;
+  /** Role label for whoever picks this task up (e.g. "Researcher"). */
+  role?: string;
+  /** Which kind of terminal the work mostly happens at. */
+  kind?: TerminalKind;
+  /** Who should pick it up after the previous task finishes (planner order). */
+  order: number;
+}
+
+export interface MissionSpec {
+  id: string;
+  universe: string;
+  goal: string;
+  status: "active" | "review" | "done";
+}
+
 export interface AgentSpec {
   name: string;
   goal: string;
@@ -44,11 +80,13 @@ export interface AgentSpec {
   budget: Budget;
   /** Default true: shell commands and deletions need human approval. */
   approvalRequired: boolean;
-  /**
-   * The universe (workspace) this agent lives in, e.g. "Personal",
-   * "Business", or a project name. The UI shows one universe at a time.
-   */
+  /** The universe (workspace) this agent lives in: "Personal" or "Business". */
   universe: string;
+  /** Mission and task this agent was spawned for, when part of a team. */
+  missionId?: string;
+  taskId?: string;
+  /** Short role label shown on the card, e.g. "Researcher". */
+  role?: string;
 }
 
 /**
@@ -107,9 +145,17 @@ export interface EventPayloads {
   /** Incremental usage for the step just taken; the reducer accumulates totals. */
   "usage.updated": { inputTokens: number; outputTokens: number; costUsd: number };
   "agent.finished": { outcome: AgentOutcome };
+  /** Standing instructions the agent keeps following (replaces previous). */
+  "agent.instructions_set": { text: string };
   /** Universe-level events: agentId is "" (no agent). */
   "terminal.added": { terminal: TerminalSpec };
   "terminal.removed": { terminalId: string; universe: string };
+  "mission.created": { mission: MissionSpec };
+  "mission.updated": { missionId: string; status: MissionSpec["status"] };
+  "task.created": { task: TaskSpec };
+  "task.updated": { taskId: string; status?: TaskStatus; progress?: number; assigneeId?: string; note?: string };
+  /** Team channel: agents talking to each other (and the human) in a universe. agentId = sender, "" for the human. */
+  "team.message": { universe: string; missionId?: string; fromName: string; text: string };
 }
 
 export type EventType = keyof EventPayloads;
@@ -147,6 +193,12 @@ export const EVENT_TYPES: readonly EventType[] = [
   "agent.finished",
   "terminal.added",
   "terminal.removed",
+  "agent.instructions_set",
+  "mission.created",
+  "mission.updated",
+  "task.created",
+  "task.updated",
+  "team.message",
 ];
 
 export function isKnownEventType(t: string): t is EventType {
@@ -175,4 +227,11 @@ export type ClientCommand =
   | { kind: "stop_all" }
   | { kind: "add_terminal"; terminal: Omit<TerminalSpec, "id"> }
   | { kind: "remove_terminal"; terminalId: string }
-  | { kind: "set_mode"; mode: RunMode };
+  | { kind: "set_mode"; mode: RunMode }
+  | { kind: "set_instructions"; agentId: string; text: string }
+  /** Set a shared goal: the server plans tasks and puts a team on it. */
+  | { kind: "start_mission"; universe: string; goal: string }
+  | { kind: "create_task"; universe: string; title: string; detail: string; assigneeId?: string; missionId?: string }
+  | { kind: "update_task"; taskId: string; status?: TaskStatus; progress?: number; assigneeId?: string; note?: string }
+  /** Human posts into a universe's team channel (every active agent there hears it). */
+  | { kind: "team_post"; universe: string; text: string };

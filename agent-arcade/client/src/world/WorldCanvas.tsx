@@ -14,7 +14,7 @@
  * Dock and Mailbox), laid out by the theme.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentView, ArcadeEvent, TerminalSpec, WorldState } from "../../../shared/src";
 import { ReplayPlayer } from "../../../shared/src";
 import { advanceReplay, getState, selectAgent, selectTerminal } from "../store";
@@ -30,14 +30,15 @@ export function WorldCanvas({
   terminals,
 }: {
   theme: Theme;
-  universe: string | null;
+  universe: string;
   terminals: TerminalSpec[];
 }) {
+  const [hover, setHover] = useState<{ x: number; y: number; title: string; text: string } | null>(null);
   const bgRef = useRef<HTMLCanvasElement | null>(null);
   const fgRef = useRef<HTMLCanvasElement | null>(null);
   const miniRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const universeRef = useRef<string | null>(universe);
+  const universeRef = useRef<string>(universe);
   universeRef.current = universe;
   const terminalsRef = useRef<TerminalSpec[]>(terminals);
   terminalsRef.current = terminals;
@@ -209,8 +210,7 @@ export function WorldCanvas({
       },
     };
 
-    const inUniverse = (a: AgentView) =>
-      universeRef.current === null || a.spec.universe === universeRef.current;
+    const inUniverse = (a: AgentView) => a.spec.universe === universeRef.current;
 
     // ---- camera focus requests (roster / terminal list clicks) ----
     let seenFocusNonce = 0;
@@ -383,7 +383,26 @@ export function WorldCanvas({
       drag = { x: ev.clientX, y: ev.clientY, moved: false, id: ev.pointerId };
       fg.setPointerCapture(ev.pointerId);
     };
+    let lastHoverId: string | null = null;
+    const onHover = (ev: PointerEvent) => {
+      if (drag) return;
+      const p = toWorld(ev.clientX, ev.clientY);
+      const hit = sim.hitTest(p.x, p.y);
+      const id = hit.stationId ?? null;
+      if (id === lastHoverId) return;
+      lastHoverId = id;
+      if (!id) return setHover(null);
+      const st = stations.find((s) => s.id === id);
+      if (!st) return setHover(null);
+      const rect = fg.getBoundingClientRect();
+      const text =
+        st.terminal?.description ||
+        (st.kind === "dock" ? "Spawn point and rest area between tasks." : st.kind === "mailbox" ? "Agents wait here for your approval." : "No description yet.");
+      const tools = st.terminal?.tools.length ? ` · ${st.terminal.tools.join(", ")}` : "";
+      setHover({ x: ev.clientX - rect.left, y: ev.clientY - rect.top, title: st.name, text: text + tools });
+    };
     const onMove = (ev: PointerEvent) => {
+      onHover(ev);
       if (!drag || ev.pointerId !== drag.id) return;
       const dx = ev.clientX - drag.x;
       const dy = ev.clientY - drag.y;
@@ -439,6 +458,11 @@ export function WorldCanvas({
       placeBg();
     };
 
+    const onLeave = () => {
+      lastHoverId = null;
+      setHover(null);
+    };
+    fg.addEventListener("pointerleave", onLeave);
     fg.addEventListener("pointerdown", onDown);
     fg.addEventListener("pointermove", onMove);
     fg.addEventListener("pointerup", onUp);
@@ -450,6 +474,7 @@ export function WorldCanvas({
       cancelAnimationFrame(raf);
       if (rasterTimer) clearTimeout(rasterTimer);
       ro.disconnect();
+      fg.removeEventListener("pointerleave", onLeave);
       fg.removeEventListener("pointerdown", onDown);
       fg.removeEventListener("pointermove", onMove);
       fg.removeEventListener("pointerup", onUp);
@@ -482,6 +507,12 @@ export function WorldCanvas({
           </div>
           <div className="world-hint">drag to pan · scroll to move · ⌘/ctrl+scroll to zoom</div>
         </>
+      )}
+      {hover && (
+        <div className="world-tip" style={{ left: hover.x + 14, top: hover.y + 14 }}>
+          <b>{hover.title}</b>
+          <span>{hover.text}</span>
+        </div>
       )}
       <canvas ref={miniRef} className="minimap" />
     </div>

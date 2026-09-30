@@ -3,8 +3,8 @@
  * replay). Kept here so they can be unit-tested with the reducer.
  */
 
-import type { TerminalSpec } from "./events";
-import type { AgentView, WorldState } from "./reducer";
+import type { MissionSpec, TaskSpec, TerminalSpec } from "./events";
+import type { AgentView, TeamMessage, WorldState } from "./reducer";
 
 /** Terminals in a universe (or every universe when null), in creation order. */
 export function terminalsIn(world: WorldState, universe: string | null): TerminalSpec[] {
@@ -49,4 +49,30 @@ export function filesChanged(agent: AgentView): string[] {
 /** Elapsed run time in ms: creation to finish (or to `now` while running). */
 export function elapsedMs(agent: AgentView, now: number): number {
   return Math.max(0, (agent.finishedTs ?? now) - agent.createdTs);
+}
+
+/** Tasks in a universe in planner order. */
+export function tasksIn(world: WorldState, universe: string | null): TaskSpec[] {
+  return world.taskOrder
+    .map((id) => world.tasks[id])
+    .filter((t): t is TaskSpec => Boolean(t) && (universe === null || t!.universe === universe))
+    .sort((a, b) => a.order - b.order);
+}
+
+/** The task an agent is currently working on, if any. */
+export function currentTaskOf(world: WorldState, agentId: string): TaskSpec | undefined {
+  const mine = tasksIn(world, null).filter((t) => t.assigneeId === agentId);
+  return mine.find((t) => t.status === "in_progress") ?? mine.at(-1);
+}
+
+/** The latest active mission in a universe. */
+export function activeMission(world: WorldState, universe: string): MissionSpec | undefined {
+  return [...world.missionOrder]
+    .reverse()
+    .map((id) => world.missions[id])
+    .find((m) => m && m.universe === universe && m.status !== "done");
+}
+
+export function teamMessagesIn(world: WorldState, universe: string): TeamMessage[] {
+  return world.teamMessages.filter((m) => m.universe === universe);
 }

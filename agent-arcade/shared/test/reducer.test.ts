@@ -299,3 +299,52 @@ describe("terminal.added / terminal.removed", () => {
     expect(s.agents["a1"]!.currentTool?.terminalId).toBe("t1");
   });
 });
+
+describe("missions, tasks, team channel, instructions", () => {
+  const mission = { id: "m1", universe: "Business", goal: "ship it", status: "active" as const };
+  const task = { id: "t1", universe: "Business", missionId: "m1", title: "Research", detail: "look around", status: "planned" as const, progress: 0, order: 0 };
+
+  it("creates and updates missions and tasks; done forces 100%", () => {
+    let s = reduce(initialState(), ev({ agentId: "", type: "mission.created", payload: { mission } }));
+    s = reduce(s, ev({ agentId: "", type: "task.created", payload: { task } }));
+    s = reduce(s, ev({ agentId: "", type: "task.updated", payload: { taskId: "t1", status: "in_progress", assigneeId: "a1", progress: 40 } }));
+    expect(s.tasks["t1"]).toMatchObject({ status: "in_progress", assigneeId: "a1", progress: 40 });
+    s = reduce(s, ev({ agentId: "", type: "task.updated", payload: { taskId: "t1", status: "done" } }));
+    expect(s.tasks["t1"]?.progress).toBe(100);
+    s = reduce(s, ev({ agentId: "", type: "mission.updated", payload: { missionId: "m1", status: "review" } }));
+    expect(s.missions["m1"]?.status).toBe("review");
+    expect(s.missionOrder).toEqual(["m1"]);
+    expect(s.taskOrder).toEqual(["t1"]);
+  });
+
+  it("clamps progress and ignores updates to unknown ids", () => {
+    let s = reduce(initialState(), ev({ agentId: "", type: "task.created", payload: { task: { ...task, progress: 250 } } }));
+    expect(s.tasks["t1"]?.progress).toBe(100);
+    s = reduce(s, ev({ agentId: "", type: "task.updated", payload: { taskId: "ghost", progress: 5 } }));
+    expect(s.ignored.at(-1)?.reason).toBe("update of unknown task");
+    s = reduce(s, ev({ agentId: "", type: "mission.updated", payload: { missionId: "ghost", status: "done" } }));
+    expect(s.ignored.at(-1)?.reason).toBe("update of unknown mission");
+  });
+
+  it("folds unknown universes into Business and keeps Personal", () => {
+    let s = reduce(initialState(), created());
+    expect(s.agents["a1"]?.spec.universe).toBe("Business"); // fixture says Testland
+    s = reduce(s, ev({ agentId: "a2", type: "agent.created", payload: { spec: { ...spec, universe: "Personal" } } }));
+    expect(s.agents["a2"]?.spec.universe).toBe("Personal");
+    s = reduce(s, ev({ agentId: "", type: "task.created", payload: { task: { ...task, universe: "Project X" } } }));
+    expect(s.tasks["t1"]?.universe).toBe("Business");
+  });
+
+  it("collects team messages (human and agents) and caps the log", () => {
+    let s = reduce(initialState(), ev({ agentId: "", type: "team.message", payload: { universe: "Business", fromName: "You", text: "go" } }));
+    s = reduce(s, ev({ agentId: "a1", type: "team.message", payload: { universe: "Business", fromName: "Scout", text: "on it" } }));
+    expect(s.teamMessages.map((m) => m.fromName)).toEqual(["You", "Scout"]);
+    expect(s.teamMessages[1]?.agentId).toBe("a1");
+  });
+
+  it("stores standing instructions on the agent", () => {
+    let s = reduce(initialState(), created());
+    s = reduce(s, ev({ agentId: "a1", type: "agent.instructions_set", payload: { text: "keep it short" } }));
+    expect(s.agents["a1"]?.instructions).toBe("keep it short");
+  });
+});

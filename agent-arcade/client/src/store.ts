@@ -4,7 +4,7 @@
  * canvas render loop (which reads getState() directly every frame).
  */
 
-import type { ClientCommand, WorldState } from "../../shared/src";
+import type { ClientCommand, Universe, WorldState } from "../../shared/src";
 import { initialState, reduce, reduceAll, runRange } from "../../shared/src";
 
 export interface UiState {
@@ -18,8 +18,10 @@ export interface UiState {
   selectedAgentId?: string;
   /** Selected station (terminal id, or "dock"/"mailbox"). */
   selectedTerminalId?: string;
-  /** Active universe (workspace) filter; null = all universes. */
-  activeUniverse: string | null;
+  /** Active universe: "Personal" or "Business". */
+  activeUniverse: Universe;
+  /** Left panel tab. */
+  leftTab: "team" | "tasks" | "terminals";
   themeId: "isle" | "handheld";
   /** Ask the camera to pan to an agent or station (nonce marks each request). */
   focus?: { kind: "agent" | "station"; id: string; nonce: number };
@@ -33,7 +35,8 @@ let state: UiState = {
   mode: "mock",
   liveAvailable: false,
   liveModels: [],
-  activeUniverse: null,
+  activeUniverse: "Personal",
+  leftTab: "team",
   themeId: "isle",
 };
 const listeners = new Set<() => void>();
@@ -64,7 +67,7 @@ export function startReplay(agentId: string): void {
     ...state,
     selectedAgentId: agentId,
     selectedTerminalId: undefined,
-    activeUniverse: a.spec.universe,
+    activeUniverse: a.spec.universe === "Personal" ? "Personal" : "Business",
     replay: { agentId, startTs, endTs, cursorTs: startTs, playing: true, speed: 4 },
   });
 }
@@ -108,18 +111,23 @@ export function selectTerminal(id: string | undefined): void {
   set({ ...state, selectedTerminalId: id, selectedAgentId: id ? undefined : state.selectedAgentId });
 }
 
-export function setUniverse(universe: string | null): void {
+export function setUniverse(universe: Universe): void {
   // Drop selections that aren't in the new universe.
   const sel = state.selectedAgentId ? state.world.agents[state.selectedAgentId] : undefined;
-  const keepAgent = sel && (universe === null || sel.spec.universe === universe);
+  const keepAgent = sel && sel.spec.universe === universe;
   const term = state.selectedTerminalId ? state.world.terminals[state.selectedTerminalId] : undefined;
-  const keepTerminal = state.selectedTerminalId && (!term || universe === null || term.universe === universe);
+  const keepTerminal = state.selectedTerminalId && (!term || term.universe === universe);
   set({
     ...state,
     activeUniverse: universe,
     selectedAgentId: keepAgent ? state.selectedAgentId : undefined,
     selectedTerminalId: keepTerminal ? state.selectedTerminalId : undefined,
+    replay: undefined,
   });
+}
+
+export function setLeftTab(tab: UiState["leftTab"]): void {
+  set({ ...state, leftTab: tab });
 }
 
 export function setTheme(themeId: "isle" | "handheld"): void {

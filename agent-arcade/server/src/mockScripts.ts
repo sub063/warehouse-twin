@@ -10,6 +10,8 @@ export type MsRange = [number, number];
 
 export type Step =
   | { kind: "say"; text: string }
+  /** Post to the team channel (agents talking to each other). */
+  | { kind: "team"; text: string }
   | { kind: "think"; ms: MsRange; say?: string }
   | {
       kind: "tool";
@@ -113,7 +115,7 @@ export const MOCK_SCRIPTS: MockScript[] = [
       allowedTools: ["file.read", "file.edit", "shell.run"],
       budget: { maxTokens: 40_000 },
       approvalRequired: true,
-      universe: "Project Atlas",
+      universe: "Business",
     },
     steps: [
       { kind: "say", text: "hunting the flaky test" },
@@ -146,7 +148,7 @@ export const MOCK_SCRIPTS: MockScript[] = [
       ],
       budget: { maxUsd: 0.5 },
       approvalRequired: true,
-      universe: "Product Lab",
+      universe: "Business",
     },
     terminals: [
       {
@@ -210,7 +212,7 @@ export const MOCK_SCRIPTS: MockScript[] = [
       allowedTools: ["web.search", "file.write", "git.log"],
       budget: { maxTokens: 60_000 },
       approvalRequired: true,
-      universe: "Project Atlas",
+      universe: "Business",
     },
     steps: [
       { kind: "say", text: "drafting release notes" },

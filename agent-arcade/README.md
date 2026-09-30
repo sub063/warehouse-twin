@@ -9,11 +9,37 @@ renderer sits behind a `Theme` interface with two looks:
   round agent bots, vector-drawn in code, sharp at any scale
 - **Handheld**: retro 4-shade pixel world, integer-scaled and crisp
 
-Agents live in **universes** (e.g. Personal, Business, per-project
-workspaces). The top-bar switcher filters the world, roster, and cost to
-one universe at a time; "All" shows everything.
+Agents live in one of two **universes**, Personal or Business. The
+top-bar switcher filters the world, team, tasks, terminals and cost to
+one universe at a time.
 
-## Status: Milestones 1–4 done
+## Goals, teams and tasks
+
+You do not have to spawn agents one by one. In the right panel, describe
+a **goal** ("Research the best 3 CRM tools and write a comparison") and
+press *Set goal & assemble team*:
+
+- a planner splits the goal into ordered **tasks** (research, build,
+  test, visuals, listing, promo, review, ... depending on the goal and
+  which terminals exist in that universe)
+- one agent is deployed per task with a **role** (Researcher, Writer,
+  Merchant, ...); the first two tasks run in parallel and the next one
+  starts as each finishes
+- agents talk in the **team channel**: hand-offs, progress, questions.
+  You can post there too, and every running agent hears it
+- the **Tasks** tab is a board: Doing now / Planned / Needs review / Done
+  with per-task progress, Start, Approve, Redo and Mark ready; earlier
+  goals fold away under the board
+- each agent card says its goal, its task and what it is doing *now*;
+  the detail panel adds **standing instructions** (a text box of general
+  guidance the agent always follows) and a direct message box
+- hover any building in the world to see what that terminal is for and
+  which tools it provides
+
+Live agents get `team.post` and `task.update` tools for the same
+channel and progress reporting.
+
+## Status: Milestones 1–4 done, plus goals/teams/tasks
 
 - Event schema (v1) + pure reducer shared between live view and replay
 - MockAdapter: simulated agents, zero network/API calls (default mode)

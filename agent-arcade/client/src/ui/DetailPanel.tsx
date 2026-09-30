@@ -1,6 +1,6 @@
-import { useState } from "react";
-import type { AgentView, ArcadeEvent } from "../../../shared/src";
-import { elapsedMs, filesChanged } from "../../../shared/src";
+import { useEffect, useState } from "react";
+import type { AgentView, ArcadeEvent, WorldState } from "../../../shared/src";
+import { currentTaskOf, elapsedMs, filesChanged } from "../../../shared/src";
 import { sendCommand, startReplay } from "../store";
 import { fmtClock, fmtElapsed, fmtTokens, useNow } from "./format";
 
@@ -62,9 +62,13 @@ function Row({ ts, icon, cls, text }: { ts: number; icon: string; cls: string; t
   );
 }
 
-export function DetailPanel({ agent, replaying = false }: { agent: AgentView; replaying?: boolean }) {
+export function DetailPanel({ agent, world, replaying = false }: { agent: AgentView; world: WorldState; replaying?: boolean }) {
   const now = useNow(1000);
   const [draft, setDraft] = useState("");
+  const [instructions, setInstructions] = useState(agent.instructions ?? "");
+  useEffect(() => setInstructions(agent.instructions ?? ""), [agent.id, agent.instructions]);
+  const task = currentTaskOf(world, agent.id);
+  const mission = agent.spec.missionId ? world.missions[agent.spec.missionId] : undefined;
   const finished = agent.state === "done" || (agent.state === "error" && agent.outcome !== undefined);
   const canReplay = finished && !replaying;
   const files = filesChanged(agent);
@@ -83,8 +87,33 @@ export function DetailPanel({ agent, replaying = false }: { agent: AgentView; re
         <p className="name">{agent.spec.name}</p>
         <span className={`state-pill state-${agent.state}`}>{agent.state.replace("_", " ")}</span>
       </div>
-      <p className="universe-tag">{agent.spec.universe}</p>
-      <p className="goal">{agent.spec.goal}</p>
+      <p className="universe-tag">
+        {agent.spec.universe}
+        {agent.spec.role ? ` · ${agent.spec.role}` : ""}
+      </p>
+      <div className="why">
+        {mission && (
+          <div className="card-line">
+            <span className="k">Goal</span>
+            <span className="v">{mission.goal}</span>
+          </div>
+        )}
+        <div className="card-line">
+          <span className="k">{mission ? "Task" : "Goal"}</span>
+          <span className="v">{task ? `${task.title} — ${task.detail}` : agent.spec.goal}</span>
+        </div>
+        {task && (
+          <div className="card-line">
+            <span className="k">Progress</span>
+            <span className="v">
+              <span className="progress-bar inline">
+                <span style={{ width: `${task.progress}%` }} />
+              </span>{" "}
+              {task.progress}% · {task.status.replace("_", " ")}
+            </span>
+          </div>
+        )}
+      </div>
       <p className="meta">
         {agent.spec.model} · {fmtElapsed(elapsedMs(agent, now))} ·{" "}
         {fmtTokens(agent.usage.inputTokens + agent.usage.outputTokens)} tok · ${agent.usage.costUsd.toFixed(4)}
@@ -113,6 +142,25 @@ export function DetailPanel({ agent, replaying = false }: { agent: AgentView; re
           )}
           <button className="btn danger" onClick={() => sendCommand({ kind: "stop", agentId: agent.id })}>
             Stop
+          </button>
+        </div>
+      )}
+
+      {!finished && !replaying && (
+        <div className="section">
+          <h3>Standing instructions</h3>
+          <textarea
+            value={instructions}
+            rows={3}
+            placeholder="General guidance this agent should always follow, e.g. “Prefer TypeScript. Ask before spending money. Keep messages short.”"
+            onChange={(e) => setInstructions(e.target.value)}
+          />
+          <button
+            className="btn"
+            disabled={instructions === (agent.instructions ?? "")}
+            onClick={() => sendCommand({ kind: "set_instructions", agentId: agent.id, text: instructions })}
+          >
+            Save instructions
           </button>
         </div>
       )}

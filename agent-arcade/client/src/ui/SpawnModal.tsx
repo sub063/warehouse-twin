@@ -19,7 +19,7 @@ export function SpawnModal({
 }: {
   world: WorldState;
   universes: string[];
-  activeUniverse: string | null;
+  activeUniverse: string;
   mode: "mock" | "live";
   liveModels: string[];
   onClose: () => void;
@@ -27,7 +27,7 @@ export function SpawnModal({
   const models = mode === "live" && liveModels.length ? liveModels : ["mock-std", "mock-fast"];
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
-  const [universe, setUniverseField] = useState(activeUniverse ?? universes[0] ?? "Personal");
+  const [universe, setUniverseField] = useState(activeUniverse);
   const [model, setModel] = useState<string>(models[0]!);
   const [tools, setTools] = useState<string[]>(DEFAULT_TOOLS);
 
@@ -62,7 +62,7 @@ export function SpawnModal({
     };
     sendCommand({ kind: "spawn", spec });
     // If a different universe is filtered in, follow the new agent.
-    if (activeUniverse !== null && activeUniverse !== spec.universe) setUniverse(spec.universe);
+    if (activeUniverse !== spec.universe) setUniverse(spec.universe === "Personal" ? "Personal" : "Business");
     onClose();
   };
 
@@ -89,12 +89,13 @@ export function SpawnModal({
         <div className="field-row">
           <label className="field">
             <span>Universe</span>
-            <input value={universe} list="universe-options" onChange={(e) => setUniverseField(e.target.value)} />
-            <datalist id="universe-options">
+            <div className="segmented">
               {universes.map((u) => (
-                <option key={u} value={u} />
+                <button key={u} type="button" className={universe === u ? "seg on" : "seg"} onClick={() => setUniverseField(u)}>
+                  {u}
+                </button>
               ))}
-            </datalist>
+            </div>
           </label>
           <label className="field">
             <span>Model</span>

@@ -28,12 +28,12 @@ export function TerminalModal({
   onClose,
 }: {
   universes: string[];
-  activeUniverse: string | null;
+  activeUniverse: string;
   onClose: () => void;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [universe, setUniverseField] = useState(activeUniverse ?? universes[0] ?? "Personal");
+  const [universe, setUniverseField] = useState(activeUniverse);
   const [kind, setKind] = useState<TerminalKind>("custom");
   const [tools, setTools] = useState("");
   const [requires, setRequires] = useState("");
@@ -51,7 +51,7 @@ export function TerminalModal({
         requires: splitList(requires),
       },
     });
-    if (activeUniverse !== null && activeUniverse !== u) setUniverse(u);
+    if (activeUniverse !== u) setUniverse(u === "Personal" ? "Personal" : "Business");
     onClose();
   };
 
@@ -71,12 +71,13 @@ export function TerminalModal({
           </label>
           <label className="field">
             <span>Universe</span>
-            <input value={universe} list="terminal-universe-options" onChange={(e) => setUniverseField(e.target.value)} />
-            <datalist id="terminal-universe-options">
+            <div className="segmented">
               {universes.map((u) => (
-                <option key={u} value={u} />
+                <button key={u} type="button" className={universe === u ? "seg on" : "seg"} onClick={() => setUniverseField(u)}>
+                  {u}
+                </button>
               ))}
-            </datalist>
+            </div>
           </label>
         </div>
 

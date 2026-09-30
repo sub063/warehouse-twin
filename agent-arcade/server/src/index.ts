@@ -14,7 +14,8 @@ import path from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import { WebSocketServer, WebSocket } from "ws";
 import type { AgentAdapter, AgentSpec, ClientCommand, RunMode, ServerMessage, TerminalSpec } from "../../shared/src";
-import { reduceAll, TERMINAL_KINDS } from "../../shared/src";
+import { normalizeUniverse, reduceAll, teamMessagesIn, TERMINAL_KINDS } from "../../shared/src";
+import { MissionManager, mockPlanner } from "./missions";
 import { EventBus } from "./bus";
 import { ClaudeAdapter, LIVE_MODELS } from "./claudeAdapter";
 import { openStore } from "./db";
@@ -73,6 +74,7 @@ if (liveAvailable) {
     workspaceRoot: WORKSPACE_ROOT,
     resolveTerminal: (universe, tool, category) => terminals.resolve(universe, tool, category),
     terminalsFor: (universe) => terminals.inUniverse(universe),
+    teamContext: (universe) => teamMessagesIn(reduceAll(bus.snapshot()), universe).slice(-12).map((m) => `${m.fromName}: ${m.text}`),
   });
   live.onEvent((draft) => bus.publish(draft));
 }
@@ -80,6 +82,35 @@ if (liveAvailable) {
 let mode: RunMode = "mock";
 const owners = new Map<string, AgentAdapter>();
 const adapters: AgentAdapter[] = live ? [mock, live] : [mock];
+
+const missions = new MissionManager({
+  publish: (d) => bus.publish(d),
+  terminalsFor: (u) => terminals.inUniverse(u),
+  adapterForNewAgents: () => (mode === "live" && live ? live : mock),
+  mock,
+  planner: () => mockPlanner,
+  onSpawned: (id, adapter) => owners.set(id, adapter),
+  liveModel: () => LIVE_MODELS[0],
+  isLive: () => mode === "live" && live !== null,
+});
+// Orphans were closed out above, so nothing restored is still running.
+missions.restore(restored.missions, restored.tasks, new Set());
+// Hand-offs and progress are driven from the event stream itself.
+bus.subscribe((e) => missions.observe(e));
+
+/** Every running agent in a universe hears a team-channel post. */
+function broadcastTeam(universe: string, fromName: string, text: string, exceptAgentId?: string): void {
+  const world = reduceAll(bus.snapshot());
+  for (const id of world.order) {
+    const a = world.agents[id];
+    if (!a || a.outcome !== undefined || a.spec.universe !== universe || id === exceptAgentId) continue;
+    owners.get(id)?.deliverTeamMessage(id, fromName, text);
+  }
+}
+bus.subscribe((e) => {
+  // Agents' own team posts reach their teammates (not themselves).
+  if (e.type === "team.message" && e.agentId !== "") broadcastTeam(e.payload.universe, e.payload.fromName, e.payload.text, e.agentId);
+});
 
 function modeMessage(): ServerMessage {
   return { kind: "mode", mode, liveAvailable, liveModels: [...LIVE_MODELS] };
@@ -108,7 +139,8 @@ function sanitizeSpec(raw: unknown): AgentSpec | null {
       : [],
     budget,
     approvalRequired: r.approvalRequired !== false,
-    universe: (typeof r.universe === "string" && r.universe.slice(0, 40).trim()) || "Personal",
+    universe: normalizeUniverse(r.universe),
+    ...(typeof r.role === "string" ? { role: r.role.slice(0, 30) } : {}),
   };
 }
 
@@ -122,7 +154,7 @@ function sanitizeTerminal(raw: unknown): Omit<TerminalSpec, "id"> | null {
   const strings = (v: unknown, max: number) =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim().slice(0, 60)).slice(0, max) : [];
   return {
-    universe: r.universe.trim().slice(0, 40),
+    universe: normalizeUniverse(r.universe),
     name: r.name.trim().slice(0, 40),
     description: typeof r.description === "string" ? r.description.trim().slice(0, 300) : "",
     kind: TERMINAL_KINDS.includes(r.kind as never) ? (r.kind as TerminalSpec["kind"]) : "custom",
@@ -180,6 +212,41 @@ function handleCommand(cmd: ClientCommand): void {
     case "remove_terminal":
       if (typeof cmd.terminalId === "string") terminals.remove(cmd.terminalId);
       return;
+    case "set_instructions":
+      if (typeof cmd.text === "string") owners.get(cmd.agentId)?.setInstructions(cmd.agentId, cmd.text.slice(0, 2000));
+      return;
+    case "start_mission":
+      if (typeof cmd.goal === "string" && cmd.goal.trim()) {
+        const u = normalizeUniverse(cmd.universe);
+        terminals.ensureDefaults(u);
+        void missions.start(u, cmd.goal.trim().slice(0, 400));
+      }
+      return;
+    case "create_task":
+      if (typeof cmd.title === "string" && cmd.title.trim()) {
+        const u = normalizeUniverse(cmd.universe);
+        missions.createTask(u, cmd.title.trim().slice(0, 120), typeof cmd.detail === "string" ? cmd.detail.slice(0, 400) : "", cmd.assigneeId, cmd.missionId);
+      }
+      return;
+    case "update_task":
+      if (typeof cmd.taskId === "string") {
+        missions.updateTask(cmd.taskId, {
+          ...(cmd.status ? { status: cmd.status } : {}),
+          ...(typeof cmd.progress === "number" ? { progress: cmd.progress } : {}),
+          ...(typeof cmd.assigneeId === "string" ? { assigneeId: cmd.assigneeId } : {}),
+          ...(typeof cmd.note === "string" ? { note: cmd.note.slice(0, 200) } : {}),
+        });
+      }
+      return;
+    case "team_post":
+      if (typeof cmd.text === "string" && cmd.text.trim()) {
+        const u = normalizeUniverse(cmd.universe);
+        const text = cmd.text.trim().slice(0, 500);
+        const missionId = missions.activeMissionId(u);
+        bus.publish({ agentId: "", type: "team.message", payload: { universe: u, missionId, fromName: "You", text } });
+        broadcastTeam(u, "You", text);
+      }
+      return;
     case "set_mode":
       // Live is opt-in and only possible with a key on the server.
       mode = cmd.mode === "live" && liveAvailable ? "live" : "mock";
@@ -220,16 +287,19 @@ wss.on("listening", () => {
   console.log(
     `[agent-arcade] mode=${mode} · live ${liveAvailable ? "available (API key found)" : "unavailable (no API key)"} · ws://${HOST}:${PORT} · ` +
       `${bus.snapshot().length} events loaded (${restored.order.length} agents${orphans ? `, ${orphans} closed out` : ""}) · ` +
-      (seed ? `spawning ${AGENT_COUNT} mock agents` : "no demo agents (use + New Agent)"),
+      (seed ? "seeding demo agent + Business mission" : "no demo agents (set a goal or use + New Agent)"),
   );
   if (!seed) return;
-  MOCK_SCRIPTS.slice(0, AGENT_COUNT).forEach((script, i) => {
-    setTimeout(() => {
-      terminals.ensure(script.spec.universe, script.terminals ?? []);
-      const id = mock.startScript(script);
-      owners.set(id, mock);
-    }, 500 + i * 1500);
+  // Demo: a solo agent in Personal and a full team mission in Business
+  // (with the product-pipeline terminals so the mission fans out).
+  for (const u of ["Personal", "Business"]) terminals.ensureDefaults(u);
+  const forge = MOCK_SCRIPTS.find((s) => s.spec.name === "Forge");
+  if (forge) terminals.ensure("Business", forge.terminals ?? []);
+  MOCK_SCRIPTS.slice(0, Math.min(AGENT_COUNT, 1)).forEach((script) => {
+    const id = mock.startScript(script);
+    owners.set(id, mock);
   });
+  setTimeout(() => void missions.start("Business", "Design, list and market the Lumen desk lamp"), 1500);
 });
 
 for (const sig of ["SIGINT", "SIGTERM"] as const) {

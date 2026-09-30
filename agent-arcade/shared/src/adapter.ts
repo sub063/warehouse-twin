@@ -17,6 +17,10 @@ export interface AgentAdapter {
   sendMessage(agentId: string, text: string): void;
   /** Approve or deny a pending action. */
   resolveApproval(agentId: string, actionId: string, approved: boolean): void;
+  /** Replace the agent's standing instructions. */
+  setInstructions(agentId: string, text: string): void;
+  /** Deliver a team-channel message (from another agent or the human). */
+  deliverTeamMessage(agentId: string, fromName: string, text: string): void;
   /** Subscribe to everything the adapter's agents do. */
   onEvent(listener: (e: DraftEvent) => void): void;
   /** Ids of agents this adapter is still running (pause-all / stop-all). */
