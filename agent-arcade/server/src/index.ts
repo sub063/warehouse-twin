@@ -132,7 +132,7 @@ function sanitizeSpec(raw: unknown): AgentSpec | null {
   const mockModel = r.model === "mock-fast" ? "mock-fast" : "mock-std";
   return {
     name: r.name.slice(0, 40).trim() || "Agent",
-    goal: r.goal.slice(0, 400).trim() || "do something useful",
+    goal: r.goal.trim() || "do something useful",
     model: mode === "live" ? liveModel : mockModel,
     allowedTools: Array.isArray(r.allowedTools)
       ? r.allowedTools.filter((t): t is string => typeof t === "string").slice(0, 20)
@@ -222,7 +222,7 @@ function handleCommand(cmd: ClientCommand): void {
       if (typeof cmd.goal === "string" && cmd.goal.trim()) {
         const u = normalizeUniverse(cmd.universe);
         terminals.ensureDefaults(u);
-        void missions.start(u, cmd.goal.trim().slice(0, 400));
+        void missions.start(u, cmd.goal.trim());
       }
       return;
     case "create_task":

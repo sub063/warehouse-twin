@@ -1210,10 +1210,15 @@ body {
   font-weight: 600;
   line-height: 1.4;
   margin: 0 0 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 40vh;
+  overflow: auto;
 }
 
 .mission textarea {
   width: 100%;
+  min-height: 90px;
   font: inherit;
   font-size: 13px;
   padding: 8px 11px;

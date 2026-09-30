@@ -108,7 +108,7 @@ export function MissionPanel({ world, universe }: { world: WorldState; universe:
             </p>
             <textarea
               value={goal}
-              rows={3}
+              rows={5}
               placeholder="e.g. Research the best 3 CRM tools for a 5-person team and write a comparison"
               onChange={(e) => setGoal(e.target.value)}
             />
