@@ -597,13 +597,16 @@ export const isleTheme: Theme = {
     ctx.save();
     ctx.globalAlpha = flicker;
 
-    // Selection ring.
+    // Selection ring (soft double stroke — no shadowBlur, it's slow).
     if (v.selected) {
       ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+      ctx.lineWidth = 4.5;
+      ctx.beginPath();
+      ctx.ellipse(x, y + 1, 11, 5, 0, 0, Math.PI * 2);
+      ctx.stroke();
       ctx.strokeStyle = "rgba(255,255,255,0.95)";
-      ctx.lineWidth = 2;
-      ctx.shadowColor = "rgba(255,255,255,0.8)";
-      ctx.shadowBlur = 6;
+      ctx.lineWidth = 1.8;
       ctx.beginPath();
       ctx.ellipse(x, y + 1, 11, 5, 0, 0, Math.PI * 2);
       ctx.stroke();
@@ -762,9 +765,10 @@ export const isleTheme: Theme = {
     bx = Math.max(4, Math.min(W - bw - 4, bx));
     const by = Math.max(4, y - bh - 10);
 
-    ctx.shadowColor = "rgba(30, 50, 80, 0.25)";
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 2;
+    // Soft shadow as an offset fill (shadowBlur is too slow per frame).
+    ctx.fillStyle = "rgba(30, 50, 80, 0.16)";
+    rr(ctx, bx + 1, by + 2.5, bw, bh, 8);
+    ctx.fill();
     ctx.fillStyle = "rgba(255,255,255,0.96)";
     rr(ctx, bx, by, bw, bh, 8);
     ctx.fill();
@@ -775,7 +779,6 @@ export const isleTheme: Theme = {
     ctx.lineTo(x + 4, by + bh - 1);
     ctx.closePath();
     ctx.fill();
-    ctx.shadowColor = "transparent";
 
     ctx.fillStyle = COLORS.ink;
     ctx.textAlign = "left";
@@ -803,14 +806,13 @@ export const isleTheme: Theme = {
 
 // Shared badge helpers.
 function badge(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, color: string): void {
-  ctx.save();
-  ctx.shadowColor = "rgba(20, 30, 45, 0.3)";
-  ctx.shadowBlur = 4;
-  ctx.shadowOffsetY = 1;
+  // Offset fill instead of shadowBlur (too slow to draw every frame).
+  ctx.fillStyle = "rgba(20, 30, 45, 0.22)";
+  rr(ctx, x - r + 0.5, y - r + 1.5, r * 2, r * 2, r * 0.62);
+  ctx.fill();
   ctx.fillStyle = color;
   rr(ctx, x - r, y - r, r * 2, r * 2, r * 0.62);
   ctx.fill();
-  ctx.restore();
 }
 
 function check(ctx: CanvasRenderingContext2D, x: number, y: number): void {
