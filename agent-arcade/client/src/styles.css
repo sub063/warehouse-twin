@@ -1,0 +1,191 @@
+/* UI chrome outside the canvas: clean and modern. Only the world is pixel art. */
+
+:root {
+  --bg: #0e1116;
+  --panel: #161b22;
+  --border: #262d38;
+  --text: #dce3ec;
+  --muted: #8a94a3;
+  --accent: #8bac0f;
+  --warn: #d4a72c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.badge.mode-mock {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.badge.ok {
+  color: var(--accent);
+}
+
+.badge.warn {
+  color: var(--warn);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.stat {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.columns {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.panel {
+  width: 240px;
+  min-width: 200px;
+  padding: 14px;
+  background: var(--panel);
+  overflow-y: auto;
+}
+
+.panel.left {
+  border-right: 1px solid var(--border);
+}
+
+.panel.right {
+  border-left: 1px solid var(--border);
+  width: 280px;
+}
+
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.placeholder {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.mini-roster {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.mini-roster li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.mini-roster li.selected {
+  border-color: var(--accent);
+}
+
+.mini-roster .state {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.state-error {
+  color: #d16060 !important;
+}
+
+.state-done {
+  color: var(--accent) !important;
+}
+
+.state-awaiting_approval {
+  color: var(--warn) !important;
+}
+
+.center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 12px;
+}
+
+.world-wrap {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.world-canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #0f380f;
+}
+
+.detail-stub .name {
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.detail-stub .goal {
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.detail-stub p {
+  margin: 4px 0;
+}
