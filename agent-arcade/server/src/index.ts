@@ -212,6 +212,9 @@ function handleCommand(cmd: ClientCommand): void {
     case "remove_terminal":
       if (typeof cmd.terminalId === "string") terminals.remove(cmd.terminalId);
       return;
+    case "answer_question":
+      if (typeof cmd.answer === "string" && cmd.answer.trim()) owners.get(cmd.agentId)?.answerQuestion(cmd.agentId, cmd.questionId, cmd.answer.trim().slice(0, 500));
+      return;
     case "set_instructions":
       if (typeof cmd.text === "string") owners.get(cmd.agentId)?.setInstructions(cmd.agentId, cmd.text.slice(0, 2000));
       return;

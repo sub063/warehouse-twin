@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AgentView, ArcadeEvent, WorldState } from "../../../shared/src";
 import { currentTaskOf, elapsedMs, filesChanged } from "../../../shared/src";
 import { sendCommand, startReplay } from "../store";
+import { QuestionCard } from "./QuestionCard";
 import { fmtClock, fmtElapsed, fmtTokens, useNow } from "./format";
 
 const TIMELINE_LIMIT = 80;
@@ -30,6 +31,10 @@ function TimelineRow({ e }: { e: ArcadeEvent }) {
           text={`${e.payload.tool} (${(e.payload.durationMs / 1000).toFixed(1)}s) — ${e.payload.resultSummary}`}
         />
       );
+    case "question.asked":
+      return <Row ts={e.ts} icon="?" cls="question" text={`asked you: ${e.payload.text}`} />;
+    case "question.answered":
+      return null; // the human's answer shows as a message row
     case "approval.requested":
       return <Row ts={e.ts} icon="?" cls="approval" text={`approval requested: ${e.payload.description}`} />;
     case "approval.resolved":
@@ -176,6 +181,15 @@ export function DetailPanel({ agent, world, replaying = false }: { agent: AgentV
           <button className="btn primary" onClick={send} disabled={!draft.trim()}>
             Send
           </button>
+        </div>
+      )}
+
+      {!finished && !replaying && agent.pendingQuestions.length > 0 && (
+        <div className="section questions">
+          <h3>Asks you</h3>
+          {agent.pendingQuestions.map((q) => (
+            <QuestionCard key={q.questionId} agent={agent} question={q} />
+          ))}
         </div>
       )}
 

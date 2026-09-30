@@ -1,5 +1,5 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { ReplayPlayer, terminalsIn, UNIVERSES } from "../../shared/src";
+import { openQuestions, ReplayPlayer, terminalsIn, UNIVERSES } from "../../shared/src";
 import { focusOn, getState, selectAgent, selectTerminal, sendCommand, setLeftTab, setTheme, setUniverse, subscribe } from "./store";
 import { DetailPanel } from "./ui/DetailPanel";
 import { MissionPanel } from "./ui/MissionPanel";
@@ -31,6 +31,8 @@ export function App() {
   const selected = replay ? replayAgent : selectedAgentId ? world.agents[selectedAgentId] : undefined;
   const selectedTerminal = selectedTerminalId ? world.terminals[selectedTerminalId] : undefined;
   const universes = [...UNIVERSES];
+  const questionsAll = openQuestions(world, null);
+  const questionsHere = questionsAll.filter((q) => q.agent.spec.universe === activeUniverse);
 
   const active = visibleIds.map((id) => world.agents[id]).filter((a) => a && a.outcome === undefined);
   const anyRunning = active.some((a) => a!.state !== "paused");
@@ -68,6 +70,19 @@ export function App() {
           <span className={`dot ${connected ? "ok" : "off"}`} title={connected ? "connected" : "connecting…"} />
         </div>
         <div className="topbar-side right">
+          {questionsAll.length > 0 && (
+            <button
+              className="pill question-pill"
+              title="Agents are waiting for your answer"
+              onClick={() => {
+                const first = questionsHere[0] ?? questionsAll[0]!;
+                if (first.agent.spec.universe !== activeUniverse) setUniverse(first.agent.spec.universe as (typeof UNIVERSES)[number]);
+                closeDetail();
+              }}
+            >
+              {questionsAll.length} question{questionsAll.length === 1 ? "" : "s"} for you
+            </button>
+          )}
           <span className="stat">
             {active.length} working · ${scopeCost.toFixed(3)}
           </span>

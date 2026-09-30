@@ -26,6 +26,7 @@ const COLORS = {
   pathEdge: "#D9C089",
   ink: "#233042",
   badgeOrange: "#FF9F0A",
+  accent: "#2F7CF6",
   badgeRed: "#FF453A",
   badgeGreen: "#30C758",
   badgeGray: "#8E8E93",
@@ -908,14 +909,14 @@ export const isleTheme: Theme = {
     ctx.restore();
 
     const topY = y - 20 + bob;
-    if (v.state === "awaiting_approval") {
+    if (v.state === "awaiting_approval" || v.state === "asking_you") {
       const pulse = 1 + Math.sin(t / 300) * 0.08;
-      badge(ctx, x, topY - 5, 6.5 * pulse, COLORS.badgeOrange);
+      badge(ctx, x, topY - 5, 6.5 * pulse, v.state === "asking_you" ? COLORS.accent : COLORS.badgeOrange);
       ctx.fillStyle = "#FFFFFF";
       ctx.font = FONT(9, 800);
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("!", x, topY - 4.6);
+      ctx.fillText(v.state === "asking_you" ? "?" : "!", x, topY - 4.6);
     } else if (v.state === "done") {
       badge(ctx, x, topY - 5, 6.5, COLORS.badgeGreen);
       check(ctx, x, topY - 5);

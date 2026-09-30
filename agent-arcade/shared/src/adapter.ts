@@ -17,6 +17,8 @@ export interface AgentAdapter {
   sendMessage(agentId: string, text: string): void;
   /** Approve or deny a pending action. */
   resolveApproval(agentId: string, actionId: string, approved: boolean): void;
+  /** Answer a question the agent asked the human. */
+  answerQuestion(agentId: string, questionId: string, answer: string): void;
   /** Replace the agent's standing instructions. */
   setInstructions(agentId: string, text: string): void;
   /** Deliver a team-channel message (from another agent or the human). */

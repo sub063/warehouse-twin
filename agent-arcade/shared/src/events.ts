@@ -15,6 +15,8 @@ export type AgentState =
   | "thinking"
   | "using_tool"
   | "awaiting_approval"
+  /** Waiting for the human to answer a question. */
+  | "asking_you"
   | "paused"
   | "error"
   | "done";
@@ -142,6 +144,9 @@ export interface EventPayloads {
   message: { from: "agent" | "human"; text: string };
   "approval.requested": { actionId: string; description: string };
   "approval.resolved": { actionId: string; approved: boolean };
+  /** The agent asked the human something and is waiting. */
+  "question.asked": { questionId: string; text: string; options?: string[] };
+  "question.answered": { questionId: string; answer: string };
   /** Incremental usage for the step just taken; the reducer accumulates totals. */
   "usage.updated": { inputTokens: number; outputTokens: number; costUsd: number };
   "agent.finished": { outcome: AgentOutcome };
@@ -189,6 +194,8 @@ export const EVENT_TYPES: readonly EventType[] = [
   "message",
   "approval.requested",
   "approval.resolved",
+  "question.asked",
+  "question.answered",
   "usage.updated",
   "agent.finished",
   "terminal.added",
@@ -222,6 +229,7 @@ export type ClientCommand =
   | { kind: "stop"; agentId: string }
   | { kind: "send_message"; agentId: string; text: string }
   | { kind: "resolve_approval"; agentId: string; actionId: string; approved: boolean }
+  | { kind: "answer_question"; agentId: string; questionId: string; answer: string }
   | { kind: "pause_all" }
   | { kind: "resume_all" }
   | { kind: "stop_all" }

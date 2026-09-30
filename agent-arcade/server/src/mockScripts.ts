@@ -12,6 +12,8 @@ export type Step =
   | { kind: "say"; text: string }
   /** Post to the team channel (agents talking to each other). */
   | { kind: "team"; text: string }
+  /** Ask the human a question and wait for the answer. */
+  | { kind: "ask"; text: string; options?: string[] }
   | { kind: "think"; ms: MsRange; say?: string }
   | {
       kind: "tool";

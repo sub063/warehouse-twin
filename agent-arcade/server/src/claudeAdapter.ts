@@ -89,6 +89,7 @@ interface Run {
   inbox: string[];
   instructions?: string;
   pendingApproval?: { actionId: string; resolve: (approved: boolean) => void };
+  pendingQuestion?: { questionId: string; resolve: (answer: string | null) => void };
 }
 
 const truncate = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
@@ -191,6 +192,16 @@ export class ClaudeAdapter implements AgentAdapter {
     r.inbox.push(`[team channel] ${fromName}: ${text}`);
   }
 
+  answerQuestion(agentId: string, questionId: string, answer: string): void {
+    const r = this.runs.get(agentId);
+    if (!r || r.finished || r.pendingQuestion?.questionId !== questionId) return;
+    const pending = r.pendingQuestion;
+    r.pendingQuestion = undefined;
+    this.emit({ agentId, type: "question.answered", payload: { questionId, answer } });
+    this.emit({ agentId, type: "message", payload: { from: "human", text: answer } });
+    pending.resolve(answer);
+  }
+
   resolveApproval(agentId: string, actionId: string, approved: boolean): void {
     const r = this.runs.get(agentId);
     if (!r || r.finished || r.pendingApproval?.actionId !== actionId) return;
@@ -215,6 +226,8 @@ export class ClaudeAdapter implements AgentAdapter {
     // Unblock anything waiting on the human.
     r.pendingApproval?.resolve(false);
     r.pendingApproval = undefined;
+    r.pendingQuestion?.resolve(null);
+    r.pendingQuestion = undefined;
     for (const w of r.pauseWaiters.splice(0)) w();
     this.setState(r, outcome === "error" ? "error" : "done");
     this.emit({ agentId: r.id, type: "agent.finished", payload: { outcome } });
@@ -238,7 +251,7 @@ export class ClaudeAdapter implements AgentAdapter {
   private toolDefs(r: Run): Anthropic.MessageCreateParams["tools"] {
     const allowed = new Set(r.spec.allowedTools);
     const tools: NonNullable<Anthropic.MessageCreateParams["tools"]> = [];
-    const custom = (name: string, description: string, props: Record<string, { type: string; description: string }>, required: string[]): Anthropic.Tool => ({
+    const custom = (name: string, description: string, props: Record<string, { type: string; description: string; items?: { type: string } }>, required: string[]): Anthropic.Tool => ({
       name,
       description,
       input_schema: { type: "object", properties: props, required, additionalProperties: false },
@@ -267,6 +280,12 @@ export class ClaudeAdapter implements AgentAdapter {
         ["request"],
       ));
     }
+    tools.push(custom(
+      "ask.user",
+      "Ask the human a question and wait for their answer. Use it when a decision is theirs to make (preferences, budget, scope, ambiguity you cannot resolve). Optionally offer short options.",
+      { question: { type: "string", description: "The question, one or two sentences" }, options: { type: "array", items: { type: "string" }, description: "Up to 4 short choices; empty array for a free-form answer" } },
+      ["question", "options"],
+    ));
     tools.push(custom("team.post", "Post a short message to your team channel: hand-offs, questions, findings other agents need. Keep it to one or two sentences.", { text: { type: "string", description: "The message" } }, ["text"]));
     if (r.spec.taskId) {
       tools.push(custom("task.update", "Report progress on your assigned task.", { progress: { type: "integer", description: "0-100" }, note: { type: "string", description: "One line on where things stand" } }, ["progress", "note"]));
@@ -289,6 +308,7 @@ export class ClaudeAdapter implements AgentAdapter {
       team.length ? `Recent team channel:\n${team.map((l) => `- ${l}`).join("\n")}` : "",
       `You work only inside your own workspace folder; all file paths are relative to it and paths outside it are rejected.`,
       `Shell commands and file deletions may need a human's approval; if one is denied, adapt and continue.`,
+      `If something is the human's call (preferences, budget, scope), ask with ask.user and wait for the answer rather than guessing. You can also send them plain messages; they read your replies.`,
       `Before each tool call, say in one short sentence what you are about to do. When the goal is complete, give a brief summary and stop.`,
       terminals ? `Terminals in this universe:\n${terminals}` : "",
     ]
@@ -416,7 +436,7 @@ export class ClaudeAdapter implements AgentAdapter {
   }
 
   private categoryOf(tool: string): ToolCategory {
-    if (tool === "team.post" || tool === "task.update") return "human";
+    if (tool === "team.post" || tool === "task.update" || tool === "ask.user") return "human";
     if (tool === "shell.run") return "shell";
     if (tool.startsWith("file.")) return "files";
     if (tool.startsWith("web.")) return "search";
@@ -454,7 +474,7 @@ export class ClaudeAdapter implements AgentAdapter {
   private async runTool(r: Run, tu: Anthropic.ToolUseBlock): Promise<Anthropic.ToolResultBlockParam> {
     const input = (typeof tu.input === "object" && tu.input !== null ? tu.input : {}) as Record<string, unknown>;
     const category = this.categoryOf(tu.name);
-    const meta = tu.name === "team.post" || tu.name === "task.update";
+    const meta = tu.name === "team.post" || tu.name === "task.update" || tu.name === "ask.user";
     const terminalId = meta ? undefined : this.opts.resolveTerminal?.(r.spec.universe, tu.name, category);
     const started = Date.now();
 
@@ -473,6 +493,21 @@ export class ClaudeAdapter implements AgentAdapter {
         this.emit({ agentId: r.id, type: "message", payload: { from: "agent", text: "okay, skipping that" } });
         return { type: "tool_result", tool_use_id: tu.id, is_error: true, content: "The human denied this action. Do not retry it; adapt your plan." };
       }
+    }
+
+    if (tu.name === "ask.user") {
+      const questionId = randomUUID().slice(0, 8);
+      const text = String(input["question"] ?? "").slice(0, 500);
+      const options = Array.isArray(input["options"]) ? input["options"].filter((o): o is string => typeof o === "string").slice(0, 4) : undefined;
+      this.setState(r, "asking_you");
+      this.emit({ agentId: r.id, type: "question.asked", payload: { questionId, text, options } });
+      this.emit({ agentId: r.id, type: "team.message", payload: { universe: r.spec.universe, missionId: r.spec.missionId, fromName: r.spec.name, text: `Question for you: ${text}` } });
+      const answer = await new Promise<string | null>((resolve) => {
+        r.pendingQuestion = { questionId, resolve };
+      });
+      if (r.finished || answer === null) return { type: "tool_result", tool_use_id: tu.id, is_error: true, content: "stopped" };
+      this.setState(r, "thinking");
+      return { type: "tool_result", tool_use_id: tu.id, content: `The human answered: ${answer}` };
     }
 
     this.setState(r, "using_tool");

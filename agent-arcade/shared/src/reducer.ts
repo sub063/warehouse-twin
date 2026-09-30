@@ -46,6 +46,13 @@ export interface PendingApproval {
   requestedTs: number;
 }
 
+export interface PendingQuestion {
+  questionId: string;
+  text: string;
+  options: string[];
+  askedTs: number;
+}
+
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
@@ -70,6 +77,8 @@ export interface AgentView {
   /** Standing instructions from the human. */
   instructions?: string;
   pendingApprovals: PendingApproval[];
+  /** Questions the agent is waiting on the human to answer. */
+  pendingQuestions: PendingQuestion[];
   usage: Usage;
   /** Full per-agent event timeline (drives the detail panel and replay). */
   timeline: ArcadeEvent[];
@@ -185,6 +194,7 @@ function apply(state: WorldState, e: ArcadeEvent): WorldState {
         stateSince: e.ts,
         createdTs: e.ts,
         pendingApprovals: [],
+        pendingQuestions: [],
         usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
         timeline: [e],
       };
@@ -255,6 +265,22 @@ function apply(state: WorldState, e: ArcadeEvent): WorldState {
       return withAgent(state, e, (a) => ({
         ...a,
         pendingApprovals: a.pendingApprovals.filter((p) => p.actionId !== e.payload.actionId),
+      }));
+
+    case "question.asked":
+      return withAgent(state, e, (a) => ({
+        ...a,
+        bubble: e.payload.text,
+        pendingQuestions: [
+          ...a.pendingQuestions.filter((q) => q.questionId !== e.payload.questionId),
+          { questionId: e.payload.questionId, text: e.payload.text, options: Array.isArray(e.payload.options) ? e.payload.options.filter((o) => typeof o === "string") : [], askedTs: e.ts },
+        ],
+      }));
+
+    case "question.answered":
+      return withAgent(state, e, (a) => ({
+        ...a,
+        pendingQuestions: a.pendingQuestions.filter((q) => q.questionId !== e.payload.questionId),
       }));
 
     case "usage.updated": {

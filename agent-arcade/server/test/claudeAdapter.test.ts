@@ -254,12 +254,32 @@ describe("ClaudeAdapter", () => {
     adapter.start(spec({ allowedTools: ["meshy.text_to_3d"] }));
     await until(() => Boolean(done(events)));
     const toolNames = (s.calls[0]!.tools ?? []).map((t) => (t as { name: string }).name);
-    expect(toolNames).toEqual(["meshy.text_to_3d", "team.post"]);
+    expect(toolNames).toEqual(["meshy.text_to_3d", "ask.user", "team.post"]);
     const started = events.find((e) => e.type === "tool.started");
     expect(started?.type === "tool.started" && started.payload.terminalId).toBe("m");
     const res = (s.calls[1]!.messages.at(-1)!.content as Anthropic.ToolResultBlockParam[])[0]!;
     expect(String(res.content)).toContain("not connected");
     expect(String(res.content)).toContain("Meshy API key");
+  });
+
+  it("ask.user blocks until the human answers, then feeds the answer back", async () => {
+    const s = scripted([
+      turn([use("t1", "ask.user", { question: "Budget?", options: ["Low", "High"] })]),
+      turn([text("done")], "end_turn"),
+    ]);
+    const adapter = new ClaudeAdapter({ stream: s.stream, workspaceRoot: root });
+    const events = collect(adapter);
+    const id = adapter.start(spec());
+    await until(() => events.some((e) => e.type === "question.asked"));
+    const asked = events.find((e) => e.type === "question.asked")!;
+    expect(asked.type === "question.asked" && asked.payload).toMatchObject({ text: "Budget?", options: ["Low", "High"] });
+    expect(events.some((e) => e.type === "agent.state_changed" && e.payload.state === "asking_you")).toBe(true);
+    expect(s.calls.length).toBe(1);
+    adapter.answerQuestion(id, asked.type === "question.asked" ? asked.payload.questionId : "", "High");
+    await until(() => Boolean(done(events)));
+    expect(events.some((e) => e.type === "question.answered")).toBe(true);
+    const res = (s.calls[1]!.messages.at(-1)!.content as Anthropic.ToolResultBlockParam[])[0]!;
+    expect(String(res.content)).toContain("High");
   });
 
   it("finishes with an error when the API call fails, without leaking secrets", async () => {

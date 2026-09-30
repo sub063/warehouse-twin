@@ -342,6 +342,17 @@ describe("missions, tasks, team channel, instructions", () => {
     expect(s.teamMessages[1]?.agentId).toBe("a1");
   });
 
+  it("tracks questions the agent asks the human until answered", () => {
+    let s = reduce(initialState(), created());
+    s = reduce(s, ev({ agentId: "a1", type: "question.asked", payload: { questionId: "q1", text: "speed or quality?", options: ["Speed", "Quality", 7 as unknown as string] } }));
+    expect(s.agents["a1"]?.pendingQuestions).toEqual([{ questionId: "q1", text: "speed or quality?", options: ["Speed", "Quality"], askedTs: expect.any(Number) }]);
+    expect(s.agents["a1"]?.bubble).toBe("speed or quality?");
+    s = reduce(s, ev({ agentId: "a1", type: "question.answered", payload: { questionId: "nope", answer: "x" } }));
+    expect(s.agents["a1"]?.pendingQuestions).toHaveLength(1);
+    s = reduce(s, ev({ agentId: "a1", type: "question.answered", payload: { questionId: "q1", answer: "Quality" } }));
+    expect(s.agents["a1"]?.pendingQuestions).toEqual([]);
+  });
+
   it("stores standing instructions on the agent", () => {
     let s = reduce(initialState(), created());
     s = reduce(s, ev({ agentId: "a1", type: "agent.instructions_set", payload: { text: "keep it short" } }));

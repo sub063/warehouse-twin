@@ -8,6 +8,7 @@ export function doingNow(world: WorldState, id: string): string {
   const a = world.agents[id];
   if (!a) return "";
   if (a.outcome) return `finished: ${a.outcome.replace("_", " ")}`;
+  if (a.pendingQuestions.length > 0) return `asking you: ${a.pendingQuestions[0]!.text}`;
   if (a.pendingApprovals.length > 0) return `waiting for your approval: ${a.pendingApprovals[0]!.description}`;
   if (a.state === "paused") return "paused";
   if (a.state === "error") return `hit an error${a.lastTool ? ` in ${a.lastTool.tool}` : ""}, recovering`;

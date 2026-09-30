@@ -366,6 +366,11 @@ body {
   background: var(--accent);
 }
 
+.state-dot.state-asking_you {
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
 .state-dot.state-awaiting_approval {
   background: var(--orange);
   animation: pulse 1.2s ease-in-out infinite;
@@ -399,6 +404,10 @@ body {
   color: var(--orange) !important;
 }
 
+.state-asking_you {
+  color: var(--accent) !important;
+}
+
 /* ----------------------------------------------------- detail panel */
 
 .detail-head {
@@ -426,6 +435,11 @@ body {
 
 .state-pill.state-awaiting_approval {
   background: rgba(255, 159, 10, 0.14);
+}
+
+.state-pill.state-asking_you {
+  background: rgba(0, 122, 255, 0.12);
+  color: var(--accent);
 }
 
 .state-pill.state-error {
@@ -1393,4 +1407,58 @@ body {
   font: inherit;
   color: inherit;
   padding: 0;
+}
+
+/* ----------------------------------------------------- questions */
+
+.question-card {
+  border: 1px solid rgba(0, 122, 255, 0.28);
+  background: rgba(0, 122, 255, 0.06);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.question-card .from {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0;
+  margin-bottom: 2px;
+}
+.question-card p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.question-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.question-card .message-box {
+  margin: 0;
+}
+.inbox h3 .count {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  text-align: center;
+  margin-left: 4px;
+}
+.tl-question .tl-icon {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.question-pill {
+  border: 0;
+  cursor: pointer;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  animation: pulse 1.6s ease-in-out infinite;
 }

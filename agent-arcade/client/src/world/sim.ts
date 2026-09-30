@@ -80,6 +80,7 @@ export class WorldSim {
       case "using_tool":
         return this.stationForTool(a, world);
       case "awaiting_approval":
+      case "asking_you":
         return this.station("mailbox");
       case "idle":
       case "done":

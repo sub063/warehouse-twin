@@ -35,6 +35,11 @@ press *Set goal & assemble team*:
   guidance the agent always follows) and a direct message box
 - hover any building in the world to see what that terminal is for and
   which tools it provides
+- agents can **ask you questions**: they walk to the mailbox with a "?"
+  badge, the question lands in *Questions for you* at the top of the
+  right panel (and the top bar pill), with option buttons or a free-text
+  answer; the answer goes straight back to the agent, which carries on.
+  Live agents get an `ask.user` tool for this
 
 Live agents get `team.post` and `task.update` tools for the same
 channel and progress reporting.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { WorldState } from "../../../shared/src";
-import { activeMission, tasksIn, teamMessagesIn } from "../../../shared/src";
+import { activeMission, openQuestions, tasksIn, teamMessagesIn } from "../../../shared/src";
+import { QuestionCard } from "./QuestionCard";
 import { selectAgent, sendCommand, setLeftTab } from "../store";
 import { fmtClock } from "./format";
 
@@ -8,6 +9,7 @@ import { fmtClock } from "./format";
 export function MissionPanel({ world, universe }: { world: WorldState; universe: string }) {
   const mission = activeMission(world, universe);
   const tasks = tasksIn(world, universe).filter((t) => !mission || t.missionId === mission.id);
+  const questions = openQuestions(world, universe);
   const messages = teamMessagesIn(world, universe)
     .filter((m) => !mission || !m.missionId || m.missionId === mission.id)
     .slice(-80);
@@ -43,6 +45,16 @@ export function MissionPanel({ world, universe }: { world: WorldState; universe:
 
   return (
     <div className="mission">
+      {questions.length > 0 && (
+        <div className="section questions inbox">
+          <h3>
+            Questions for you <span className="count">{questions.length}</span>
+          </h3>
+          {questions.map(({ agent, question }) => (
+            <QuestionCard key={question.questionId} agent={agent} question={question} showAgent />
+          ))}
+        </div>
+      )}
       <div className="section">
         <h3>Goal · {universe}</h3>
         {mission && !newGoal ? (

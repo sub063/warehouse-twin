@@ -530,10 +530,10 @@ export const handheldTheme: Theme = {
     blit(ctx, left, top, pix, isError ? (dim ? DIM : undefined) : undefined);
 
     // State overlays.
-    if (v.state === "awaiting_approval" && Math.floor(t / 400) % 2 === 0) {
+    if ((v.state === "awaiting_approval" || v.state === "asking_you") && Math.floor(t / 400) % 2 === 0) {
       ctx.fillStyle = PALETTE[3];
       ctx.fillRect(Math.round(x) - 3, top - 9, 6, 8);
-      drawText(ctx, x - 1, top - 8, "!", PALETTE[0]);
+      drawText(ctx, x - 1, top - 8, v.state === "asking_you" ? "?" : "!", PALETTE[0]);
     }
     if (v.state === "done") {
       blit(ctx, left + 11, top + 2, FLAG);

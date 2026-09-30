@@ -93,6 +93,9 @@ export function scriptForTask(spec: AgentSpec, task: TaskSpec, kind: TerminalKin
     { kind: "tool", tool: "file.read", category: "files", args: "team/notes.md", ms: [4000, 6000], say: "checking team notes", okResult: "notes read" },
     { kind: "tool", tool, category, args: task.title.slice(0, 40), ms: [8000, 13000], say: `working at ${term?.name ?? kind}`, okResult: "step 1 done", failChance: 0.08, failResult: "hit a snag", ...(gated ? { approval: `${term?.name ?? tool}: ${task.title}` } : {}) },
     { kind: "team", text: `Halfway through "${task.title}" — looking good so far.` },
+    ...(task.order === 0
+      ? [{ kind: "ask", text: `Quick check on "${task.title}": should I optimise for speed or for quality?`, options: ["Speed", "Quality", "Balanced"] } satisfies Step]
+      : []),
     { kind: "tool", tool, category, args: task.detail.slice(0, 40), ms: [8000, 13000], say: "finishing the work", okResult: "step 2 done", failChance: 0.06, failResult: "retrying" },
     { kind: "tool", tool: "file.write", category: "files", args: `team/${task.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 24)}.md (+30)`, ms: [5000, 8000], say: "writing my results", okResult: "results saved" },
     { kind: "team", text: `Done with "${task.title}". Results are in team/ — handing off.` },

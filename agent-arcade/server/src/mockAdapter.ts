@@ -38,6 +38,7 @@ interface Runner {
   timer?: ReturnType<typeof setTimeout>;
   timerFn?: () => void;
   timerFireAt?: number;
+  pendingQuestion?: { questionId: string; text: string };
   timerRemaining?: number;
   prePauseState?: AgentState;
   pendingApproval?: { actionId: string; step: Extract<Step, { kind: "tool" }> };
@@ -201,6 +202,23 @@ export class MockAdapter implements AgentAdapter {
     }, 1500 + Math.random() * 1500);
   }
 
+  answerQuestion(agentId: string, questionId: string, answer: string): void {
+    const r = this.runners.get(agentId);
+    if (!r || r.finished || r.pendingQuestion?.questionId !== questionId) return;
+    r.pendingQuestion = undefined;
+    this.clearTimer(r);
+    this.emit({ agentId, type: "question.answered", payload: { questionId, answer } });
+    this.emit({ agentId, type: "message", payload: { from: "human", text: answer } });
+    this.setState(r, "thinking");
+    this.emit({ agentId, type: "message", payload: { from: "agent", text: `got it — ${answer.length > 30 ? answer.slice(0, 28) + "…" : answer}` } });
+    this.emit({
+      agentId,
+      type: "team.message",
+      payload: { universe: r.script.spec.universe, missionId: r.script.spec.missionId, fromName: r.script.spec.name, text: `You answered: "${answer.slice(0, 80)}" — going with that.` },
+    });
+    this.schedule(r, randInt(1200, 2200), () => this.nextStep(r));
+  }
+
   resolveApproval(agentId: string, actionId: string, approved: boolean): void {
     const r = this.runners.get(agentId);
     if (!r || r.finished || r.pendingApproval?.actionId !== actionId) return;
@@ -307,6 +325,19 @@ export class MockAdapter implements AgentAdapter {
         this.emit({ agentId: r.id, type: "message", payload: { from: "agent", text: step.text.length > 40 ? step.text.slice(0, 38) + "…" : step.text } });
         this.schedule(r, randInt(800, 1600), () => this.nextStep(r));
         return;
+
+      case "ask": {
+        const questionId = randomUUID().slice(0, 8);
+        r.pendingQuestion = { questionId, text: step.text };
+        this.setState(r, "asking_you");
+        this.emit({ agentId: r.id, type: "question.asked", payload: { questionId, text: step.text, options: step.options } });
+        this.emit({
+          agentId: r.id,
+          type: "team.message",
+          payload: { universe: r.script.spec.universe, missionId: r.script.spec.missionId, fromName: r.script.spec.name, text: `Question for you: ${step.text}` },
+        });
+        return; // waits for answerQuestion()
+      }
 
       case "think": {
         this.setState(r, "thinking");

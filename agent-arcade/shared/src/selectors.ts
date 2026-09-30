@@ -4,7 +4,7 @@
  */
 
 import type { MissionSpec, TaskSpec, TerminalSpec } from "./events";
-import type { AgentView, TeamMessage, WorldState } from "./reducer";
+import type { AgentView, PendingQuestion, TeamMessage, WorldState } from "./reducer";
 
 /** Terminals in a universe (or every universe when null), in creation order. */
 export function terminalsIn(world: WorldState, universe: string | null): TerminalSpec[] {
@@ -75,4 +75,16 @@ export function activeMission(world: WorldState, universe: string): MissionSpec 
 
 export function teamMessagesIn(world: WorldState, universe: string): TeamMessage[] {
   return world.teamMessages.filter((m) => m.universe === universe);
+}
+
+/** Every unanswered question from agents in a universe (or all), oldest first. */
+export function openQuestions(world: WorldState, universe: string | null): Array<{ agent: AgentView; question: PendingQuestion }> {
+  const out: Array<{ agent: AgentView; question: PendingQuestion }> = [];
+  for (const id of world.order) {
+    const a = world.agents[id];
+    if (!a || a.outcome !== undefined) continue;
+    if (universe !== null && a.spec.universe !== universe) continue;
+    for (const question of a.pendingQuestions) out.push({ agent: a, question });
+  }
+  return out.sort((x, y) => x.question.askedTs - y.question.askedTs);
 }
