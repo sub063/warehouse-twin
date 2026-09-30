@@ -414,17 +414,14 @@ function drawPathTo(ctx: CanvasRenderingContext2D, x: number, y: number): void {
 
 // ---------------------------------------------------- static scene
 
-let staticCache: { canvas: HTMLCanvasElement; w: number; h: number; a: number; e: number; f: number } | null = null;
-
-function drawStaticScene(
-  ctx: CanvasRenderingContext2D,
-  theme: Theme,
-  vw: number,
-  vh: number,
-  vx: number,
-  vy: number,
-): void {
-  // Water, covering the whole visible viewport (in logical coords).
+function drawStaticScene(ctx: CanvasRenderingContext2D, theme: Theme): void {
+  // Visible viewport in logical coords (the canvas may extend past the
+  // theme's logical bounds; water covers all of it).
+  const m = ctx.getTransform();
+  const vx = -m.e / m.a;
+  const vy = -m.f / m.d;
+  const vw = ctx.canvas.width / m.a;
+  const vh = ctx.canvas.height / m.d;
   const wg = ctx.createLinearGradient(0, vy, 0, vy + vh);
   wg.addColorStop(0, COLORS.waterShallow);
   wg.addColorStop(1, COLORS.waterDeep);
@@ -537,34 +534,11 @@ export const isleTheme: Theme = {
     return CATEGORY_STATION[category] ?? "workshop";
   },
 
-  drawWorld(ctx: CanvasRenderingContext2D, t: number): void {
-    // The static scene (water, island, paths, buildings, labels) is
-    // cached in an offscreen canvas at the current resolution; each
-    // frame only blits it and draws the few animated bits on top.
-    const m = ctx.getTransform();
-    const cw = ctx.canvas.width;
-    const ch = ctx.canvas.height;
-    if (
-      !staticCache ||
-      staticCache.w !== cw ||
-      staticCache.h !== ch ||
-      staticCache.a !== m.a ||
-      staticCache.e !== m.e ||
-      staticCache.f !== m.f
-    ) {
-      const layer = document.createElement("canvas");
-      layer.width = cw;
-      layer.height = ch;
-      const c = layer.getContext("2d")!;
-      c.setTransform(m);
-      drawStaticScene(c, this, cw / m.a, ch / m.d, -m.e / m.a, -m.f / m.d);
-      staticCache = { canvas: layer, w: cw, h: ch, a: m.a, e: m.e, f: m.f };
-    }
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(staticCache.canvas, 0, 0);
-    ctx.restore();
+  drawWorldStatic(ctx: CanvasRenderingContext2D): void {
+    drawStaticScene(ctx, this);
+  },
 
+  drawWorldDynamic(ctx: CanvasRenderingContext2D, t: number): void {
     // Drifting water highlights (skipped where the island sits).
     ctx.save();
     ctx.fillStyle = "rgba(255,255,255,0.10)";

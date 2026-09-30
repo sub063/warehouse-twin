@@ -3,9 +3,11 @@
  *
  * - "integer" (pixel themes): render at base resolution offscreen, blit
  *   at the largest integer scale with nearest-neighbor — crisp pixels.
- * - "smooth" (vector themes): scale the context (including device pixel
- *   ratio) and let the theme draw vector shapes every frame — smooth,
- *   mobile-game look at any size.
+ * - "smooth" (vector themes): two stacked canvases. The bottom one
+ *   holds the static scene and is rasterized only on resize; the top
+ *   one is cleared each frame and gets just the ambient animation,
+ *   agents, and bubbles. That keeps per-frame rasterization tiny, so
+ *   the world stays at full frame rate even without GPU acceleration.
  */
 
 import { useEffect, useRef } from "react";
@@ -15,19 +17,22 @@ import { WorldSim } from "./sim";
 import type { AgentVisual, Theme } from "./theme";
 
 export function WorldCanvas({ theme, universe }: { theme: Theme; universe: string | null }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const bgRef = useRef<HTMLCanvasElement | null>(null);
+  const fgRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const universeRef = useRef<string | null>(universe);
   universeRef.current = universe;
 
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const bg = bgRef.current;
+    const fg = fgRef.current;
     const wrap = wrapRef.current;
-    if (!canvas || !wrap) return;
+    if (!bg || !fg || !wrap) return;
 
     const sim = new WorldSim(theme);
     const smooth = theme.scaling === "smooth";
-    const ctx = canvas.getContext("2d")!;
+    const bgCtx = bg.getContext("2d")!;
+    const fgCtx = fg.getContext("2d")!;
 
     // Offscreen layers for the integer path.
     const base = document.createElement("canvas");
@@ -37,7 +42,7 @@ export function WorldCanvas({ theme, universe }: { theme: Theme; universe: strin
     const still = document.createElement("canvas");
     still.width = theme.width;
     still.height = theme.height;
-    if (!smooth) theme.drawWorld(still.getContext("2d")!, 0);
+    if (!smooth) theme.drawWorldStatic(still.getContext("2d")!);
 
     // View transform state (logical -> canvas element px).
     let scale = 1;
@@ -50,23 +55,28 @@ export function WorldCanvas({ theme, universe }: { theme: Theme; universe: strin
       if (smooth) {
         const cssW = Math.max(200, rect.width);
         const cssH = Math.max(150, rect.height);
-        canvas.width = Math.round(cssW * dpr);
-        canvas.height = Math.round(cssH * dpr);
-        canvas.style.width = `${cssW}px`;
-        canvas.style.height = `${cssH}px`;
+        for (const c of [bg, fg]) {
+          c.width = Math.round(cssW * dpr);
+          c.height = Math.round(cssH * dpr);
+          c.style.width = `${cssW}px`;
+          c.style.height = `${cssH}px`;
+        }
         scale = Math.min(cssW / theme.width, cssH / theme.height);
         offX = (cssW - theme.width * scale) / 2;
         offY = (cssH - theme.height * scale) / 2;
-        ctx.imageSmoothingEnabled = true;
+        // Rasterize the static scene once per resize.
+        bgCtx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, dpr * offY);
+        theme.drawWorldStatic(bgCtx);
       } else {
         scale = Math.max(1, Math.floor(Math.min(rect.width / theme.width, rect.height / theme.height)));
         offX = 0;
         offY = 0;
-        canvas.width = theme.width * scale;
-        canvas.height = theme.height * scale;
-        canvas.style.width = `${canvas.width}px`;
-        canvas.style.height = `${canvas.height}px`;
-        ctx.imageSmoothingEnabled = false;
+        fg.width = theme.width * scale;
+        fg.height = theme.height * scale;
+        fg.style.width = `${fg.width}px`;
+        fg.style.height = `${fg.height}px`;
+        bg.style.display = "none";
+        fgCtx.imageSmoothingEnabled = false;
       }
     };
     applyScale();
@@ -84,14 +94,16 @@ export function WorldCanvas({ theme, universe }: { theme: Theme; universe: strin
       const { world, selectedAgentId } = getState();
       const sprites = sim.tick(world, dt, inUniverse);
 
-      // Pick the drawing context for this path.
-      const dctx = smooth ? ctx : bctx;
+      // Pick the drawing context for this frame's content.
+      const dctx = smooth ? fgCtx : bctx;
       if (smooth) {
-        ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, dpr * offY);
-        theme.drawWorld(dctx, now);
+        fgCtx.setTransform(1, 0, 0, 1, 0, 0);
+        fgCtx.clearRect(0, 0, fg.width, fg.height);
+        fgCtx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, dpr * offY);
       } else {
         bctx.drawImage(still, 0, 0);
       }
+      theme.drawWorldDynamic(dctx, now);
 
       // Sprites, back to front.
       for (const s of sprites) {
@@ -128,30 +140,32 @@ export function WorldCanvas({ theme, universe }: { theme: Theme; universe: strin
       }
 
       if (!smooth) {
-        ctx.drawImage(base, 0, 0, canvas.width, canvas.height);
+        fgCtx.drawImage(base, 0, 0, fg.width, fg.height);
       }
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
 
     const onClick = (ev: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
+      const rect = fg.getBoundingClientRect();
       const x = (ev.clientX - rect.left - offX) / scale;
       const y = (ev.clientY - rect.top - offY) / scale;
       selectAgent(sim.hitTest(x, y));
     };
-    canvas.addEventListener("click", onClick);
+    fg.addEventListener("click", onClick);
 
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      canvas.removeEventListener("click", onClick);
+      fg.removeEventListener("click", onClick);
+      bg.style.display = "";
     };
   }, [theme]);
 
   return (
     <div className={`world-wrap ${theme.scaling}`} ref={wrapRef}>
-      <canvas ref={canvasRef} className="world-canvas" />
+      <canvas ref={bgRef} className="world-canvas layer-bg" />
+      <canvas ref={fgRef} className="world-canvas layer-fg" />
     </div>
   );
 }

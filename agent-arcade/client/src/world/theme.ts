@@ -57,11 +57,17 @@ export interface Theme {
   station(id: StationId): StationDef;
   stationFor(category: ToolCategory): StationId;
   /**
-   * Draw the world (ground, decorations, stations, labels). Integer
-   * themes are drawn once and cached; smooth themes are drawn every
-   * frame and may animate with timeMs.
+   * Draw the static world (ground, decorations, stations, labels).
+   * Called once per resize, never per frame — the renderer caches it
+   * (offscreen for pixel themes, a layered canvas for smooth ones).
    */
-  drawWorld(ctx: CanvasRenderingContext2D, timeMs: number): void;
+  drawWorldStatic(ctx: CanvasRenderingContext2D): void;
+  /**
+   * Draw the animated world details (ambient motion like water glints
+   * or blinking lights). Called every frame, on top of the static
+   * layer and under the agents. Keep it cheap.
+   */
+  drawWorldDynamic(ctx: CanvasRenderingContext2D, timeMs: number): void;
   /** Draw one agent (sprite + state overlays) with feet at (x, y). */
   drawAgent(ctx: CanvasRenderingContext2D, x: number, y: number, v: AgentVisual): void;
   /** Speech bubble above a head at (x, y = top of sprite). */

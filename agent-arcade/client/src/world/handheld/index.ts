@@ -422,7 +422,11 @@ export const handheldTheme: Theme = {
     return CATEGORY_STATION[category] ?? "workshop";
   },
 
-  drawWorld(ctx: CanvasRenderingContext2D): void {
+  drawWorldDynamic(): void {
+    // The pixel world has no ambient animation.
+  },
+
+  drawWorldStatic(ctx: CanvasRenderingContext2D): void {
     ctx.fillStyle = PALETTE[3];
     ctx.fillRect(0, 0, COLS * TILE, ROWS * TILE);
     for (let r = 0; r < ROWS; r++) {

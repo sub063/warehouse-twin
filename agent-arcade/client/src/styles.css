@@ -4,7 +4,7 @@
 :root {
   --bg-0: #eef3f9;
   --bg-1: #dce7f3;
-  --panel: rgba(255, 255, 255, 0.72);
+  --panel: rgba(255, 255, 255, 0.82);
   --panel-solid: #ffffff;
   --border: rgba(20, 40, 70, 0.1);
   --text: #1c2636;
@@ -53,8 +53,6 @@ body {
   gap: 16px;
   padding: 10px 16px;
   background: var(--panel);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -163,8 +161,6 @@ body {
   min-width: 210px;
   padding: 16px;
   background: var(--panel);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
@@ -269,6 +265,7 @@ body {
 }
 
 .world-wrap {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
@@ -279,17 +276,23 @@ body {
   box-shadow: var(--shadow);
 }
 
-/* Smooth themes fill the frame edge-to-edge. */
-.world-wrap.smooth .world-canvas {
+/* Smooth themes: two stacked full-size layers (static under, live over). */
+.world-wrap.smooth .layer-bg {
+  position: absolute;
+  inset: 0;
+}
+
+.world-wrap.smooth .layer-fg {
+  position: relative;
   display: block;
 }
 
-/* Pixel themes sit centered on a dark mat. */
+/* Pixel themes sit centered on a dark mat; only the top canvas is used. */
 .world-wrap.integer {
   background: #12161d;
 }
 
-.world-wrap.integer .world-canvas {
+.world-wrap.integer .layer-fg {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
