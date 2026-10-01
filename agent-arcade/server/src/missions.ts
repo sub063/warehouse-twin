@@ -40,16 +40,14 @@ export const mockPlanner: Planner = async (goal, terminals) => {
   const kinds = new Set(terminals.map((t) => t.kind));
   const g = goal.toLowerCase();
   const tasks: PlannedTask[] = [];
-  // Long goals are welcome; task titles/details quote a short form and the full text lives on the mission.
-  const short = goal.length > 48 ? goal.slice(0, 45).trimEnd() + "…" : goal;
-  const brief = goal.length > 160 ? goal.slice(0, 157).trimEnd() + "…" : goal;
-  tasks.push({ title: `Research: ${short}`, detail: `Find what matters for "${brief}" and write notes for the team.`, kind: "research", role: "Researcher" });
+  // Task titles never quote the goal: it can be any length and is shown in full on the goal panel.
+  tasks.push({ title: "Research the goal", detail: "Find what matters for the goal and write notes for the team.", kind: "research", role: "Researcher" });
   if (/\b(build|code|coding|app|fix|test|tests|refactor|website|site|scripts?|bug|feature|software|api)\b/.test(g)) {
-    tasks.push({ title: "Implement the changes", detail: `Do the hands-on work for "${brief}" in the workspace.`, kind: "files", role: "Builder" });
+    tasks.push({ title: "Implement the changes", detail: "Do the hands-on work for the goal in the workspace.", kind: "files", role: "Builder" });
     tasks.push({ title: "Test and verify", detail: "Run the checks and fix what fails.", kind: "shell", role: "Tester" });
   }
   if (/design|image|visual|logo|art|photo|render/.test(g) && kinds.has("image")) {
-    tasks.push({ title: "Create the visuals", detail: `Generate images for "${brief}".`, kind: "image", role: "Designer" });
+    tasks.push({ title: "Create the visuals", detail: "Generate the images the goal calls for.", kind: "image", role: "Designer" });
   }
   if (/3d|model|product|prototype/.test(g) && kinds.has("model3d")) {
     tasks.push({ title: "Build the 3D model", detail: "Turn the concept into a 3D model.", kind: "model3d", role: "Modeler" });
@@ -76,7 +74,7 @@ export const mockPlanner: Planner = async (goal, terminals) => {
     tasks.push({ title: "Hiring and onboarding", detail: "Write the role, screen candidates and plan onboarding.", kind: "hr", role: "People lead" });
   }
   if (/write|summar|report|notes|doc|plan|brief|email|post/.test(g) || tasks.length === 1) {
-    tasks.push({ title: "Write it up", detail: `Turn the findings into the deliverable for "${brief}".`, kind: "files", role: "Writer" });
+    tasks.push({ title: "Write it up", detail: "Turn the findings into the deliverable.", kind: "files", role: "Writer" });
   }
   // The reviewer always closes the plan, whatever got cut.
   const plan = tasks.slice(0, 8);
@@ -107,7 +105,7 @@ function deliverableFor(spec: AgentSpec, task: TaskSpec, where: string): string 
   const when = new Date().toISOString().slice(0, 16).replace("T", " ");
   if (spec.role === "Reviewer") {
     return [
-      `# Final: ${goal.length > 80 ? goal.slice(0, 77) + "…" : goal}`,
+      `# Final report`,
       "",
       `_Compiled by ${spec.name} (Reviewer) · ${when}_`,
       "",
