@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentView, ArcadeEvent, WorldState } from "../../../shared/src";
 import { currentTaskOf, elapsedMs, filesChanged } from "../../../shared/src";
 import { openFile, sendCommand, startReplay } from "../store";
@@ -79,6 +79,11 @@ export function DetailPanel({ agent, world, replaying = false }: { agent: AgentV
   const canReplay = finished && !replaying;
   const files = filesChanged(agent);
   const timeline = agent.timeline.slice(-TIMELINE_LIMIT).reverse();
+  const chat = agent.timeline.filter((e) => e.type === "message" || e.type === "question.asked").slice(-60);
+  const chatRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight });
+  }, [chat.length, agent.id]);
 
   const send = () => {
     const text = draft.trim();
@@ -171,17 +176,36 @@ export function DetailPanel({ agent, world, replaying = false }: { agent: AgentV
         </div>
       )}
 
-      {!finished && !replaying && (
-        <div className="message-box">
-          <input
-            value={draft}
-            placeholder="Message this agent…"
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && send()}
-          />
-          <button className="btn primary" onClick={send} disabled={!draft.trim()}>
-            Send
-          </button>
+      {!replaying && (
+        <div className="section conversation">
+          <h3>Talk to {agent.spec.name}</h3>
+          <div className="chat agent-chat" ref={chatRef}>
+            {chat.length === 0 && <p className="placeholder small">Ask anything: “what are you doing?”, “why?”, “what’s next?”, “where are the files?”, or give directions.</p>}
+            {chat.map((e) => {
+              const human = e.type === "message" && e.payload.from === "human";
+              const text = e.type === "message" ? e.payload.text : `❔ ${e.payload.text}`;
+              return (
+                <div key={e.id} className={`chat-msg ${human ? "me" : "agent"}`}>
+                  <span className="chat-from">
+                    {human ? "You" : agent.spec.name}
+                    <span className="chat-time">{fmtClock(e.ts)}</span>
+                  </span>
+                  <span className="chat-text">{text}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="message-box">
+            <input
+              value={draft}
+              placeholder={finished ? `Ask ${agent.spec.name} about the work…` : `Message ${agent.spec.name}…`}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && send()}
+            />
+            <button className="btn primary" onClick={send} disabled={!draft.trim()}>
+              Send
+            </button>
+          </div>
         </div>
       )}
 

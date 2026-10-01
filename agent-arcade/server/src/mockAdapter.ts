@@ -42,6 +42,11 @@ interface Runner {
   timerFn?: () => void;
   timerFireAt?: number;
   pendingQuestion?: { questionId: string; text: string };
+  /** Files this run has written (relative paths). */
+  filesWritten: string[];
+  /** Things the human told us in chat; surface them in the deliverable. */
+  humanNotes: string[];
+  lastResult?: string;
   timerRemaining?: number;
   prePauseState?: AgentState;
   pendingApproval?: { actionId: string; step: Extract<Step, { kind: "tool" }> };
@@ -85,6 +90,8 @@ export class MockAdapter implements AgentAdapter {
       script,
       stepIndex: 0,
       consecutiveFailures: 0,
+      filesWritten: [],
+      humanNotes: [],
       tokensUsed: 0,
       usdUsed: 0,
       state: "idle",
@@ -181,9 +188,111 @@ export class MockAdapter implements AgentAdapter {
 
   sendMessage(agentId: string, text: string): void {
     const r = this.runners.get(agentId);
-    if (!r || r.finished) return;
+    if (!r) return;
     this.emit({ agentId, type: "message", payload: { from: "human", text } });
-    this.emit({ agentId, type: "message", payload: { from: "agent", text: "noted, will do" } });
+    // Even a finished teammate can tell you what they did.
+    const reply = this.replyTo(r, text);
+    setTimeout(() => {
+      this.emit({ agentId, type: "message", payload: { from: "agent", text: reply.text } });
+      if (reply.then === "pause" && !r.paused && !r.finished) this.pause(r.id);
+      if (reply.then === "resume" && r.paused && !r.finished) this.resume(r.id);
+    }, randInt(500, 1300));
+  }
+
+  // ---- talking like a teammate ----
+
+  /** What the agent is doing right now, in its own words. */
+  private doingNow(r: Runner): string {
+    if (r.finished) return r.state === "error" ? "I stopped on an error" : "I've wrapped up";
+    if (r.paused) return "I'm paused";
+    if (r.pendingQuestion) return `I'm waiting on your answer: "${r.pendingQuestion.text}"`;
+    if (r.pendingApproval) return `I'm waiting for your approval to go ahead with "${r.pendingApproval.step.approval}"`;
+    const step = r.script.steps[r.stepIndex];
+    if (!step) return "I'm between steps";
+    switch (step.kind) {
+      case "tool":
+        return `I'm ${step.say ?? `running ${step.tool}`} (${step.tool}: ${step.args})`;
+      case "think":
+        return `I'm thinking through ${step.say ?? "the next move"}`;
+      case "ask":
+        return "I'm about to ask you something";
+      default:
+        return "I'm catching the team up";
+    }
+  }
+
+  /** Remaining meaningful steps, as short phrases. */
+  private remaining(r: Runner): string[] {
+    return r.script.steps
+      .slice(r.stepIndex + 1)
+      .filter((s): s is Extract<Step, { kind: "tool" | "ask" }> => s.kind === "tool" || s.kind === "ask")
+      .map((s) => (s.kind === "ask" ? "check something with you" : s.say ?? `${s.tool} — ${s.args}`));
+  }
+
+  private progressPct(r: Runner): number {
+    const total = r.script.steps.filter((s) => s.kind === "tool").length || 1;
+    const done = r.script.steps.slice(0, r.stepIndex).filter((s) => s.kind === "tool").length;
+    return r.finished ? 100 : Math.round((done / total) * 100);
+  }
+
+  private replyTo(r: Runner, raw: string): { text: string; then?: "pause" | "resume" } {
+    const t = raw.toLowerCase().trim();
+    const spec = r.script.spec;
+    // "Title — detail (team goal: …)" → just the title for conversation.
+    const task = spec.goal.replace(/\s*\(team goal:[\s\S]*\)$/, "").split(" — ")[0]!;
+    const teamGoal = spec.goal.match(/\(team goal: ([\s\S]*)\)$/)?.[1];
+    const files = r.filesWritten;
+    const next = this.remaining(r);
+    const pct = this.progressPct(r);
+    const has = (re: RegExp) => re.test(t);
+
+    if (has(/\b(pause|hold on|hold off|wait|stop for now|take a break)\b/)) {
+      return r.finished ? { text: "I'm already done, nothing left to pause." } : { text: "Sure, pausing here. Say \"continue\" when you want me back on it.", then: "pause" };
+    }
+    if (has(/\b(resume|continue|carry on|go ahead|keep going|back to work|unpause)\b/)) {
+      return r.paused ? { text: "On it — picking up where I left off.", then: "resume" } : { text: `Already on it: ${this.doingNow(r)}.` };
+    }
+    if (has(/\b(hi|hello|hey|yo|morning|afternoon)\b/) && t.length < 25) {
+      return { text: `Hey! ${this.doingNow(r)}. Anything you need?` };
+    }
+    if (has(/who are you|your (role|job|name)|introduce/)) {
+      return { text: `I'm ${spec.name}${spec.role ? `, the ${spec.role} on this team` : ""}. My task is "${task}".${teamGoal ? ` It's part of the team goal: ${teamGoal}.` : ""}` };
+    }
+    if (has(/\bwhy\b|what for|purpose|point of/)) {
+      return { text: `Because my task is "${task}".${teamGoal ? ` That feeds the team goal: "${teamGoal}".` : ""} ${next.length ? `Next: ${next[0]}.` : ""}`.trim() };
+    }
+    if (has(/what('s| is) next|then what|after (this|that)|plan|remaining|left to do/)) {
+      if (r.finished) return { text: "Nothing left on my plate — my task is done and waiting for your review." };
+      return { text: next.length ? `Next up: ${next.slice(0, 3).join("; then ")}. After that I write up my results and hand off.` : "I'm on my last step: writing up the results." };
+    }
+    if (has(/\b(eta|how long|when|deadline|finish|done soon|time)\b/)) {
+      if (r.finished) return { text: "Already finished." };
+      const secs = next.length * 12;
+      return { text: `About ${pct}% through. ${next.length} step${next.length === 1 ? "" : "s"} left, roughly ${secs < 60 ? `${secs} seconds` : `${Math.ceil(secs / 60)} minute${secs >= 120 ? "s" : ""}`}.` };
+    }
+    if (has(/\b(file|files|where|output|result|results|deliverable|wrote|written|saved|show me|see)\b/)) {
+      if (files.length) return { text: `So far I've written ${files.map((f) => `${f}`).join(", ")}. You can open ${files.length === 1 ? "it" : "them"} from the Output tab or my Files list.` };
+      return { text: "Nothing written yet — my results will land in my team/ folder when I get to the write-up step. You'll see it in the Output tab." };
+    }
+    if (has(/\b(stuck|problem|issue|blocker|blocked|need anything|need help|trouble|wrong)\b/)) {
+      if (r.pendingApproval) return { text: `One thing: I need your approval for "${r.pendingApproval.step.approval}" — it's in your inbox.` };
+      if (r.pendingQuestion) return { text: `Yes — I asked you: "${r.pendingQuestion.text}". Waiting on that.` };
+      if (r.consecutiveFailures > 0) return { text: `I hit a snag on ${r.lastResult ?? "the last step"} and I'm retrying. Nothing I need from you yet.` };
+      return { text: "No blockers right now. I'll ask in the channel if that changes." };
+    }
+    if (has(/what are you (doing|working|up to)|status|progress|how('s| is) it going|update|where are (you|we)|report|doing\?/)) {
+      const tail = r.finished ? (files.length ? ` My results are in ${files.join(", ")}.` : "") : next.length ? ` Next: ${next[0]}.` : "";
+      return { text: `${this.doingNow(r)} — about ${pct}% through "${task}".${tail}` };
+    }
+    if (has(/\b(thanks|thank you|great|nice|good job|well done|perfect|awesome)\b/)) {
+      return { text: "Thanks! Back to it." };
+    }
+    if (has(/\b(ok|okay|sure|yes|no|fine)\b/) && t.length < 12) {
+      return { text: "👍" };
+    }
+    // Anything else is treated as guidance: remember it and work it into the deliverable.
+    r.humanNotes.push(raw.trim());
+    return { text: `Got it — "${raw.trim().slice(0, 80)}". I'll factor that into "${task}"${files.length ? " and note it in my write-up" : ""}. ${r.finished ? "" : this.doingNow(r) + "."}`.trim() };
   }
 
   setInstructions(agentId: string, text: string): void {
@@ -395,8 +504,10 @@ export class MockAdapter implements AgentAdapter {
       const body =
         step.content ??
         `# ${rel.split("/").pop()?.replace(/\.[a-z]+$/, "") ?? "notes"}\n\n_Written by ${spec.name}${spec.role ? ` (${spec.role})` : ""} · ${new Date().toISOString()}_\n\nGoal: ${spec.goal}\n\n${step.say ?? "Notes from this run."}\n`;
-      if (step.tool === "file.edit" && fs.existsSync(full)) fs.appendFileSync(full, `\n${body}`);
-      else fs.writeFileSync(full, body);
+      const notes = r.humanNotes.length ? `\n## Notes from you\n${r.humanNotes.map((n) => `- ${n}`).join("\n")}\n` : "";
+      if (step.tool === "file.edit" && fs.existsSync(full)) fs.appendFileSync(full, `\n${body}${notes}`);
+      else fs.writeFileSync(full, body + notes);
+      if (!r.filesWritten.includes(rel)) r.filesWritten.push(rel);
     } catch (err) {
       if (!(err instanceof SandboxError)) throw err;
     }
@@ -415,6 +526,7 @@ export class MockAdapter implements AgentAdapter {
     this.schedule(r, ms, () => {
       const failed = Math.random() < (step.failChance ?? 0);
       if (!failed) this.materialize(r, step);
+      r.lastResult = failed ? step.failResult ?? "failed" : step.okResult;
       this.emit({
         agentId: r.id,
         type: "tool.finished",

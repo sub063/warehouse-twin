@@ -208,7 +208,7 @@ function handleCommand(cmd: ClientCommand, reply: (m: ServerMessage) => void = (
       return owners.get(cmd.agentId)?.stop(cmd.agentId);
     case "send_message":
       if (typeof cmd.text === "string" && cmd.text.trim()) {
-        owners.get(cmd.agentId)?.sendMessage(cmd.agentId, cmd.text.slice(0, 500));
+        owners.get(cmd.agentId)?.sendMessage(cmd.agentId, cmd.text.slice(0, 4000));
       }
       return;
     case "resolve_approval":

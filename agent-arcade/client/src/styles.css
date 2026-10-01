@@ -1572,3 +1572,14 @@ body {
   padding: 0;
   margin-bottom: 2px;
 }
+
+/* ----------------------------------------------------- agent conversation */
+
+.conversation .agent-chat {
+  max-height: 260px;
+  overflow: auto;
+  margin-bottom: 8px;
+}
+.conversation .message-box {
+  margin-bottom: 0;
+}

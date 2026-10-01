@@ -308,7 +308,8 @@ export class ClaudeAdapter implements AgentAdapter {
       team.length ? `Recent team channel:\n${team.map((l) => `- ${l}`).join("\n")}` : "",
       `You work only inside your own workspace folder; all file paths are relative to it and paths outside it are rejected.`,
       `Shell commands and file deletions may need a human's approval; if one is denied, adapt and continue.`,
-      `If something is the human's call (preferences, budget, scope), ask with ask.user and wait for the answer rather than guessing. You can also send them plain messages; they read your replies.`,
+      `If something is the human's call (preferences, budget, scope), ask with ask.user and wait for the answer rather than guessing.`,
+      `The human can message you at any time, like a colleague. When a message from them arrives, answer it directly in one or two plain sentences first (what you are doing, why, what is next, or the answer they asked for), then continue your work. Your plain-text replies are shown to them as chat.`,
       `Before each tool call, say in one short sentence what you are about to do. When the goal is complete, give a brief summary and stop.`,
       terminals ? `Terminals in this universe:\n${terminals}` : "",
     ]
