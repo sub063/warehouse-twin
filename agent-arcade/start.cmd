@@ -9,9 +9,16 @@ where node >nul 2>nul || (
   echo Node.js is not installed. Get the LTS version from https://nodejs.org and run this again.
   pause & exit /b 1
 )
+REM Pull the latest version if this is a git checkout and git is installed.
+where git >nul 2>nul && (
+  echo Checking for updates...
+  git pull --ff-only
+)
 if not exist node_modules (
   echo Installing dependencies, first run only...
   call npm.cmd install || (pause & exit /b 1)
+) else (
+  call npm.cmd install --no-audit --no-fund >nul 2>nul
 )
 REM Stop any Agent Arcade server/client still running from an earlier window.
 for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r ":8787 .*LISTENING"') do taskkill /f /pid %%p >nul 2>nul
